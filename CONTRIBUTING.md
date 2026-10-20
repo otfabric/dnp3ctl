@@ -21,7 +21,6 @@ Thank you for your interest in contributing to `dnp3ctl`! This document covers t
 
 - Go 1.25+ (see [go.mod](go.mod))
 - [staticcheck](https://staticcheck.dev/), [golangci-lint](https://golangci-lint.run/) and [govulncheck](https://go.dev/doc/security/vuln/) for the checks
-- Until go-dnp3 is tagged: a checkout of [go-dnp3](https://github.com/otfabric/go-dnp3) next to this repository (`../go-dnp3`), which `go.mod` builds against (see [RELEASE.md](RELEASE.md))
 - No hardware: the test suite brings its own outstation (see [Testing](#testing))
 
 ### Build & Test

@@ -918,8 +918,6 @@ A toplevel `Makefile` is provided for convenience. Run **`make`** (or **`make he
 | **`make build`** | Runs **`check`** then writes **`bin/dnp3ctl`** |
 | **`make build-all`** / **`release-all`** | Cross-compile and package archives |
 
-Until go-dnp3 is tagged, `go.mod` builds against a checkout of it next to this repository (`replace github.com/otfabric/go-dnp3 => ../go-dnp3`); see [RELEASE.md](RELEASE.md).
-
 ### Building
 
 `make build` writes the binary to **`bin/dnp3ctl`** (not the repo root).

@@ -1,29 +1,12 @@
 # dnp3ctl Releases
 
-## Before the first release
-
-go-dnp3 is not tagged yet. Until it is, `go.mod` builds against a checkout of it next to this repository:
-
-```
-replace github.com/otfabric/go-dnp3 => ../go-dnp3
-```
-
-That line must go before dnp3ctl is tagged: CI, `go install github.com/otfabric/dnp3ctl@latest` and the release workflow cannot resolve a relative path. Once go-dnp3 has a tag:
-
-```sh
-go mod edit -dropreplace github.com/otfabric/go-dnp3
-go get github.com/otfabric/go-dnp3@vX.Y.Z
-go mod tidy
-make check
-```
-
 ## v0.1.0 (unreleased)
 
 **Previous release:** none
 
 ### Summary
 
-First release. dnp3ctl is a command-line tool for **DNP3 (IEEE 1815)** in both roles: a **master** that polls, reads, monitors and operates an outstation, synchronizes its time, restarts it, freezes counters, reads its attributes and transfers files, and a **simulated outstation** served from a model file. It also finds outstations on a network. Built on [go-dnp3](https://github.com/otfabric/go-dnp3).
+First release. dnp3ctl is a command-line tool for **DNP3 (IEEE 1815)** in both roles: a **master** that polls, reads, monitors and operates an outstation, synchronizes its time, restarts it, freezes counters, reads its attributes and transfers files, and a **simulated outstation** served from a model file. It also finds outstations on a network. Built on [go-dnp3](https://github.com/otfabric/go-dnp3) v0.1.0.
 
 ### Highlights
 
