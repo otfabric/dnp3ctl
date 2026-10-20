@@ -1,5 +1,26 @@
 # dnp3ctl Releases
 
+## v0.3.1
+
+**Date:** 2026-10-20  
+**Previous release:** v0.3.0
+
+### Summary
+
+Secure Authentication interoperability fixes from [go-dnp3](https://github.com/otfabric/go-dnp3) v0.2.1, found by testing against DSC Systems' go-dnp3. No change to commands, flags or output.
+
+### Fixed
+
+- **Challenge replies:** the master's reply to a challenge keeps the sequence number of the critical request it answers, as outstations expect.
+- **Session key change:** the key change data carries the key status without its MAC, so a second key change within one connection (`--sa-key-change-interval`) is accepted.
+- **Simulated outstation:** sends 32-octet challenges.
+
+### Upgrade notes
+
+- No breaking changes. Recommended for everyone who uses Secure Authentication with an update key (`--sa-update-key-file`, `DNP3CTL_SA_UPDATE_KEY`).
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-10-20  
