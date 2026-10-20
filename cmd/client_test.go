@@ -498,9 +498,42 @@ func TestMonitor(t *testing.T) {
 			t.Errorf("unsolicited: %v", lines)
 		}
 	})
+	t.Run("outstation restart", func(t *testing.T) {
+		other := stationtest.Start(t, stationtest.Model)
+		enables := func() int {
+			n := 0
+			for _, e := range other.Events() {
+				if e.Function == "ENABLE_UNSOLICITED" {
+					n++
+				}
+			}
+			return n
+		}
+		done := make(chan result, 1)
+		go func() { done <- cli(t, other, "monitor", "--object", "g32", "--count", "1", "--format", "json") }()
+		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() == 1 })
+		eventually(t, "DEVICE_RESTART to be cleared", func() bool {
+			for _, e := range other.Events() {
+				if e.Function == "WRITE" {
+					return true
+				}
+			}
+			return false
+		})
+		// After a restart the outstation has forgotten the enabled classes: the monitor
+		// enables them again, and events keep coming.
+		other.Server().Restart()
+		eventually(t, "unsolicited responses to be enabled again", func() bool { return enables() == 2 })
+		_ = other.Server().Database().UpdateAnalogInput(1, app.Analog{Value: 7, Flags: app.FlagOnline})
+		r := (<-done).want(t, 0).errHas(t, "unsolicited responses enabled again")
+		if lines := r.lines(t); len(lines) != 1 || lines[0]["unsolicited"] != true {
+			t.Errorf("after the restart: %v", lines)
+		}
+	})
 	t.Run("poll interval, duration and table", func(t *testing.T) {
 		cli(t, st, "monitor", "--unsolicited", "none", "--poll-interval", "1", "--duration", "1", "--index", "0", "--format", "table").want(t, 0)
 		cli(t, st, "monitor", "--integrity", "--count", "1").want(t, 0).has(t, "resp")
+		cli(t, st, "--debug", "monitor", "--integrity", "--count", "1").want(t, 0).errHas(t, "debug:", "link PRI", "app  ")
 	})
 	t.Run("connection lost", func(t *testing.T) {
 		other := stationtest.Start(t, stationtest.Model)

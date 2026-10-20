@@ -28,7 +28,9 @@ the classes of --unsolicited (default 1,2,3; "none" to leave them as they are) a
 --integrity, runs an integrity poll first so that the stream starts with all current
 values; it is repeated when the outstation reports a restart or a lost event. With
 --poll-interval the events of classes 1-3 are also polled at that interval, for
-outstations that do not report unsolicited.
+outstations that do not report unsolicited. When the outstation reports a restart, the
+master clears its restart indication and enables unsolicited responses again, since an
+outstation that restarted has forgotten them.
 
 Monitoring runs until interrupted (Ctrl-C), or until --duration seconds have passed or
 --count values were printed. A lost connection is established again (turn that off with
@@ -39,7 +41,9 @@ line with --format json, or one table row with --format table. Connection state 
 and a summary go to stderr.
 
 Events an outstation has reported to this master are gone from its buffer: monitoring
-with the link address of the regular master takes its events away.`,
+with the link address of the regular master takes its events away. An outstation also
+takes a second connection from the same master address for that master reconnecting, and
+drops the first: run other commands next to a monitor with another --master.`,
 		Example: `
   # Watch everything outstation 10 reports, starting with an integrity poll
   dnp3ctl client monitor --ip 192.168.1.20 --integrity

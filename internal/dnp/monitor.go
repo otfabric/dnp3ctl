@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dnp3 "github.com/otfabric/go-dnp3"
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/client"
+	"github.com/otfabric/go-dnp3/link"
 
 	"github.com/otfabric/dnp3ctl/internal/config"
 	"github.com/otfabric/dnp3ctl/internal/errs"
@@ -70,6 +73,21 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		mu     sync.Mutex
 		failed error
 	)
+	// An outstation that restarted has forgotten which classes this master enabled for
+	// unsolicited responses: enable them again when it reports the restart.
+	restarted := make(chan struct{}, 1)
+	watcher := &restartWatcher{onRestart: func() {
+		if len(classes) == 0 {
+			return
+		}
+		select {
+		case restarted <- struct{}{}:
+		default:
+		}
+	}}
+	if cfg.Debug {
+		watcher.trace = &Tracer{W: progress}
+	}
 	handler := client.HandlerFunc(func(info client.ResponseInfo, ms []client.Measurement) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -115,6 +133,9 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		client.WithHandler(handler),
 		client.WithStateHandler(state),
 		client.WithStartup(client.Startup{Integrity: cfg.Integrity, EnableUnsolicited: classes}),
+		// A long-running master clears DEVICE_RESTART, as IEEE 1815-2012 expects of it.
+		client.WithAutoClearRestart(true),
+		client.WithMetrics(watcher),
 	}
 	if cfg.Integrity {
 		// After a restart or an event buffer overflow the outstation's events are gone: an
@@ -146,10 +167,23 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		return summary, err
 	}
 	var result error
-	select {
-	case <-ctx.Done():
-	case err := <-lost:
-		result = WrapError(err)
+wait:
+	for {
+		select {
+		case <-ctx.Done():
+			break wait
+		case err := <-lost:
+			result = WrapError(err)
+			break wait
+		case <-restarted:
+			rctx, stop := context.WithTimeout(ctx, s.Timeout)
+			if err := s.EnableUnsolicited(rctx, classes...); err != nil && ctx.Err() == nil {
+				_, _ = fmt.Fprintf(progress, "monitor: enabling unsolicited responses after a restart: %v\n", WrapError(err))
+			} else if err == nil {
+				_, _ = fmt.Fprintln(progress, "monitor: the outstation restarted: unsolicited responses enabled again")
+			}
+			stop()
+		}
 	}
 	_ = s.Close()
 	summary.Seconds = time.Since(begin).Seconds()
@@ -159,4 +193,69 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		return summary, failed
 	}
 	return summary, result
+}
+
+// restartWatcher sees the IIN of every fragment the outstation sends, null responses
+// included, which the measurement handler does not get. DEVICE_RESTART counts once it was
+// seen clear: an outstation reports it from its start until a master clears it, and the
+// startup sequence already enables the classes when connecting. Every callback is handed on
+// to the --debug trace.
+type restartWatcher struct {
+	trace     dnp3.Metrics
+	onRestart func()
+	sawClear  atomic.Bool
+}
+
+func (w *restartWatcher) OnFragmentReceived(remote net.Addr, f *app.Fragment, size int) {
+	switch {
+	case !f.IIN.Has(app.IINDeviceRestart):
+		w.sawClear.Store(true)
+	case w.sawClear.Swap(false):
+		w.onRestart()
+	}
+	if w.trace != nil {
+		w.trace.OnFragmentReceived(remote, f, size)
+	}
+}
+
+func (w *restartWatcher) OnConnect(remote net.Addr) {
+	if w.trace != nil {
+		w.trace.OnConnect(remote)
+	}
+}
+
+func (w *restartWatcher) OnDisconnect(remote net.Addr, err error) {
+	if w.trace != nil {
+		w.trace.OnDisconnect(remote, err)
+	}
+}
+
+func (w *restartWatcher) OnFrameSent(remote net.Addr, f *link.Frame, size int) {
+	if w.trace != nil {
+		w.trace.OnFrameSent(remote, f, size)
+	}
+}
+
+func (w *restartWatcher) OnFrameReceived(remote net.Addr, f *link.Frame, size int) {
+	if w.trace != nil {
+		w.trace.OnFrameReceived(remote, f, size)
+	}
+}
+
+func (w *restartWatcher) OnFramingError(remote net.Addr, err error) {
+	if w.trace != nil {
+		w.trace.OnFramingError(remote, err)
+	}
+}
+
+func (w *restartWatcher) OnFragmentSent(remote net.Addr, f *app.Fragment, size int) {
+	if w.trace != nil {
+		w.trace.OnFragmentSent(remote, f, size)
+	}
+}
+
+func (w *restartWatcher) OnDecodeError(remote net.Addr, err error) {
+	if w.trace != nil {
+		w.trace.OnDecodeError(remote, err)
+	}
 }
