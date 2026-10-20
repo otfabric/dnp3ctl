@@ -18,6 +18,8 @@ dnp3ctl moves to [go-dnp3](https://github.com/otfabric/go-dnp3) v1.3.0, which ge
 
 - No breaking changes.
 
+---
+
 ## v0.6.0
 
 **Date:** 2026-10-20  
@@ -44,6 +46,8 @@ dnp3ctl moves to [go-dnp3](https://github.com/otfabric/go-dnp3) v1.2.0: `server 
 ### Upgrade notes
 
 - No breaking changes to commands, flags or JSON output. Server events gain `outstation` when several outstations are served, and the table output of `server start` gains an OUTSTATION column (empty with one outstation).
+
+---
 
 ## v0.5.0
 
