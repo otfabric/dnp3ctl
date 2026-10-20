@@ -21,9 +21,9 @@ var broadcastAddresses = map[string]link.Address{
 // BroadcastModes describes the values of --broadcast.
 func BroadcastModes() map[string]string {
 	return map[string]string{
-		"no-confirm": fmt.Sprintf("address %#04X: no application confirmation", uint16(link.BroadcastNoConfirm)),
-		"confirm":    fmt.Sprintf("address %#04X: the outstations ask for confirmation", uint16(link.BroadcastConfirm)),
-		"optional":   fmt.Sprintf("address %#04X: confirmation is optional", uint16(link.BroadcastOptionalConfirm)),
+		"no-confirm": fmt.Sprintf("address 0x%04X: no application confirmation", uint16(link.BroadcastNoConfirm)),
+		"confirm":    fmt.Sprintf("address 0x%04X: confirmation is mandatory", uint16(link.BroadcastConfirm)),
+		"optional":   fmt.Sprintf("address 0x%04X: confirmation is optional", uint16(link.BroadcastOptionalConfirm)),
 	}
 }
 
