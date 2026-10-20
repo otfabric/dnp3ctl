@@ -30,6 +30,8 @@ var pointTypes = map[uint8]string{
 	43:  "analog-output-command",
 	80:  "iin",
 	110: "octet-string", 111: "octet-string",
+	101: "bcd",
+	102: "unsigned-integer",
 	121: "security-statistic", 122: "security-statistic",
 }
 
@@ -214,6 +216,11 @@ func ToMeasurement(m client.Measurement) types.Measurement {
 	case app.SecurityStatistic:
 		out.Value, out.Timestamp = float64(v.Value), timeText(v.Time)
 		out.Flags, out.Statistic = FlagsText(kind, v.Flags), secauth.Statistic(m.Index).String()
+	case app.BCD:
+		// The exact number: 16 digits do not fit the precision of a float.
+		out.Value = v.Value
+	case app.UnsignedInteger:
+		out.Value = float64(v.Value)
 	case app.AbsoluteTime:
 		if m.GV == app.G50V4 {
 			interval := v.Interval

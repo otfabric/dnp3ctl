@@ -107,13 +107,13 @@ func Poll(ctx context.Context, cfg *config.PollConfig, trace io.Writer) (*types.
 // values is a partial result; without values, or any other error, it is fatal.
 func finishPoll(out *types.PollResult, res *client.Result, took time.Duration, err error, objects ObjectFilter, indexes IndexFilter) (*types.PollResult, error) {
 	var iinErr *dnp3.IINError
-	if err != nil && (res == nil || !errors.As(err, &iinErr) || len(measurementsOf(res)) == 0) {
+	if err != nil && (res == nil || !errors.As(err, &iinErr) || len(res.Measurements()) == 0) {
 		return nil, WrapError(err)
 	}
 	out.DurationMs = ms(took)
 	out.IIN = res.IIN.String()
 	out.Measurements = []types.Measurement{}
-	for _, m := range measurementsOf(res) {
+	for _, m := range res.Measurements() {
 		out.Received++
 		if !objects.Match(m.GV) || !indexes.Match(m.Index) {
 			continue
@@ -123,23 +123,6 @@ func finishPoll(out *types.PollResult, res *client.Result, took time.Duration, e
 	out.Count = len(out.Measurements)
 	out.Error = EmbeddedErrorInfo(err)
 	return out, nil
-}
-
-// measurementsOf returns the values of a response in the order of its headers: the
-// measurements of go-dnp3, and the times and intervals (g50v4), which it leaves out with
-// the other time objects.
-func measurementsOf(res *client.Result) []client.Measurement {
-	var out []client.Measurement
-	for _, h := range res.Headers() {
-		if h.GV != app.G50V4 {
-			out = append(out, client.Measurements(&app.Fragment{Headers: []app.Header{h}})...)
-			continue
-		}
-		for _, o := range h.Objects {
-			out = append(out, client.Measurement{GV: h.GV, Index: o.Index, Value: o.Value})
-		}
-	}
-	return out
 }
 
 // CheckRead validates the configuration of `client read`.
