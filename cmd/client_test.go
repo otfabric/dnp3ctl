@@ -580,6 +580,7 @@ func TestTargetsAndErrors(t *testing.T) {
 			{"--url", "tcp://x", "--ip", "y"},
 			{"--url", "serial://"},
 			{"--url", "tcp://127.0.0.1", "--tls-insecure"},
+			{"--url", "tcp://127.0.0.1", "--udp-local-port", "20000"},
 			{"--ip", "127.0.0.1", "--master", "10"},
 			{"--ip", "127.0.0.1", "--outstation", "65530"},
 			{"--ip", "127.0.0.1", "--master", "65532"},

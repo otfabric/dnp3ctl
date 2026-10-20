@@ -45,6 +45,7 @@ Plain DNP3 carries no encryption, and without Secure Authentication no authentic
 
 - The key is read from `--sa-key-file` or `DNP3CTL_SA_KEY`, as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the file to the environment on shared hosts
 - The key must have at least 16 octets. The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
+- Interoperability: no other stack in the go-dnp3 interop suite runs SAv5 (opendnp3 3.x and Step Function I/O's dnp3 have none), so it is verified between go-dnp3's own master and outstation, and dnp3ctl against its simulated outstation. The challenge-reply MAC is computed over the challenge followed by the critical request, as other SAv5 implementations do; the key change procedures, where implementations are known to differ, are not implemented
 - Only the pre-shared mode is implemented: the session key change, update key change and user management procedures, and aggressive mode, are not. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
 - The simulated outstation verifies with the same key (`server start --sa-key-file`); it challenges the default critical function codes of go-dnp3 (controls, writes, restarts, freezes, assign class, opening and deleting files, among others)
 

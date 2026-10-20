@@ -1,5 +1,13 @@
 # dnp3ctl Releases
 
+## Unreleased
+
+- **`--udp-local-port`:** with `udp://` URLs, send from a fixed local port, for outstations that answer only a configured master endpoint.
+- **`server start --udp`:** the event log names the master the outstation answers as `remote`, not the outstation's own socket.
+- **Docs:** the UDP behaviour of the simulated outstation, and how Secure Authentication has been verified.
+
+---
+
 ## v0.1.0
 
 **Date:** 2026-10-20  

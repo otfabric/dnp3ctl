@@ -11,6 +11,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dnp3 "github.com/otfabric/go-dnp3"
@@ -49,6 +50,7 @@ type Station struct {
 	controls map[pointKey]*control
 	files    *fileServer
 
+	udp  atomic.Pointer[peerConn] // the socket of ServeUDP, when serving UDP
 	stop chan struct{}
 	wg   sync.WaitGroup
 	mu   sync.Mutex // serializes the events of the log
@@ -208,8 +210,44 @@ func (st *Station) Model() *Model { return st.model }
 // Serve accepts connections on l until Close.
 func (st *Station) Serve(l net.Listener) error { return st.srv.Serve(l) }
 
-// ServeUDP serves DNP3 over UDP on pc until Close.
-func (st *Station) ServeUDP(pc net.PacketConn) error { return st.srv.ServeUDP(pc) }
+// ServeUDP serves DNP3 over UDP on pc until Close. The outstation answers the endpoint
+// the last datagram came from, which the event log names as the remote.
+func (st *Station) ServeUDP(pc net.PacketConn) error {
+	pp := &peerConn{PacketConn: pc}
+	st.udp.Store(pp)
+	return st.srv.ServeUDP(pp)
+}
+
+// peerConn records where the last datagram came from: go-dnp3 names a UDP channel by
+// the local address of its socket, the master is the peer.
+type peerConn struct {
+	net.PacketConn
+	peer atomic.Pointer[string]
+}
+
+func (c *peerConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	n, addr, err := c.PacketConn.ReadFrom(b)
+	if addr != nil {
+		s := addr.String()
+		c.peer.Store(&s)
+	}
+	return n, addr, err
+}
+
+// remoteText names the remote end of a channel in the event log: for UDP the master the
+// outstation answers, for a stream its address.
+func (st *Station) remoteText(a net.Addr) string {
+	if a == nil {
+		return ""
+	}
+	if pp := st.udp.Load(); pp != nil && a.String() == pp.LocalAddr().String() {
+		if peer := pp.peer.Load(); peer != nil {
+			return *peer
+		}
+		return ""
+	}
+	return a.String()
+}
 
 // ServeConn serves one stream, a serial port for example, until it ends or Close.
 func (st *Station) ServeConn(rw io.ReadWriteCloser, remote net.Addr) error {
@@ -458,7 +496,7 @@ func simValue(s *SimSpec, cur float64, n int, step float64) float64 {
 		mid, amp := (s.Max+s.Min)/2, (s.Max-s.Min)/2
 		return mid + amp*math.Sin(2*math.Pi*float64(n)/period)
 	case "random":
-		return s.Min + rand.Float64()*(s.Max-s.Min) //nolint:gosec // simulated measurements, not security
+		return s.Min + rand.Float64()*(s.Max-s.Min)
 	default: // count
 		return cur + step
 	}
@@ -471,22 +509,15 @@ type eventMetrics struct {
 	trace dnp3.Metrics
 }
 
-func remoteText(a net.Addr) string {
-	if a == nil {
-		return ""
-	}
-	return a.String()
-}
-
 func (m *eventMetrics) OnConnect(remote net.Addr) {
-	m.st.event(types.ServerEvent{Event: "connected", Remote: remoteText(remote)})
+	m.st.event(types.ServerEvent{Event: "connected", Remote: m.st.remoteText(remote)})
 	if m.trace != nil {
 		m.trace.OnConnect(remote)
 	}
 }
 
 func (m *eventMetrics) OnDisconnect(remote net.Addr, err error) {
-	e := types.ServerEvent{Event: "disconnected", Remote: remoteText(remote)}
+	e := types.ServerEvent{Event: "disconnected", Remote: m.st.remoteText(remote)}
 	if err != nil {
 		e.Detail = err.Error()
 	}
@@ -527,7 +558,7 @@ func (m *eventMetrics) OnFragmentReceived(remote net.Addr, f *app.Fragment, size
 }
 
 func (m *eventMetrics) OnDecodeError(remote net.Addr, err error) {
-	m.st.event(types.ServerEvent{Event: "error", Remote: remoteText(remote), Detail: "undecodable request: " + err.Error()})
+	m.st.event(types.ServerEvent{Event: "error", Remote: m.st.remoteText(remote), Detail: "undecodable request: " + err.Error()})
 	if m.trace != nil {
 		m.trace.OnDecodeError(remote, err)
 	}
@@ -535,7 +566,7 @@ func (m *eventMetrics) OnDecodeError(remote net.Addr, err error) {
 
 // OnHandled implements dnp3.ServerMetrics.
 func (m *eventMetrics) OnHandled(remote net.Addr, fc app.FunctionCode, d time.Duration) {
-	m.st.event(types.ServerEvent{Event: "request", Remote: remoteText(remote), Function: fc.String(), Detail: fmt.Sprintf("%.1f ms", float64(d)/float64(time.Millisecond))})
+	m.st.event(types.ServerEvent{Event: "request", Remote: m.st.remoteText(remote), Function: fc.String(), Detail: fmt.Sprintf("%.1f ms", float64(d)/float64(time.Millisecond))})
 }
 
 // OnEventsDiscarded implements dnp3.ServerMetrics.
@@ -545,7 +576,7 @@ func (m *eventMetrics) OnEventsDiscarded(class int, n int) {
 
 // OnUnsolicited implements dnp3.ServerMetrics.
 func (m *eventMetrics) OnUnsolicited(remote net.Addr, events int, err error) {
-	e := types.ServerEvent{Event: "unsolicited", Remote: remoteText(remote), Detail: fmt.Sprintf("%d events confirmed", events)}
+	e := types.ServerEvent{Event: "unsolicited", Remote: m.st.remoteText(remote), Detail: fmt.Sprintf("%d events confirmed", events)}
 	if events == 0 {
 		e.Detail = "null response confirmed"
 	}

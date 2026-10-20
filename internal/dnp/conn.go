@@ -74,7 +74,7 @@ func SecureAuthUser(cfg config.AuthConfig) (*secauth.User, error) {
 	case cfg.SAKeyFile != "" && raw != "":
 		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-file and DNP3CTL_SA_KEY are mutually exclusive", nil)
 	case cfg.SAKeyFile != "":
-		data, err := os.ReadFile(cfg.SAKeyFile) //nolint:gosec // a path the operator gave
+		data, err := os.ReadFile(cfg.SAKeyFile)
 		if err != nil {
 			return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("reading the secure authentication key: %v", err), err)
 		}
@@ -114,7 +114,7 @@ func ClientTLS(cfg config.TLSConfig) (*tls.Config, error) {
 	out := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		ServerName:         cfg.ServerName,
-		InsecureSkipVerify: cfg.Insecure, //nolint:gosec // explicit --tls-insecure, for test setups
+		InsecureSkipVerify: cfg.Insecure,
 	}
 	if cfg.CACert != "" {
 		pool, err := CertPool(cfg.CACert)
@@ -138,7 +138,7 @@ func ClientTLS(cfg config.TLSConfig) (*tls.Config, error) {
 
 // CertPool reads PEM certificates from path.
 func CertPool(path string) (*x509.CertPool, error) {
-	pem, err := os.ReadFile(path) //nolint:gosec // a path the operator gave
+	pem, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading CA certificates: %w", err)
 	}
@@ -191,6 +191,22 @@ func SerialOpener(sc serial.Config) client.StreamOpener {
 // OpenSerial opens the serial port of sc, for the server side.
 func OpenSerial(sc serial.Config) (io.ReadWriteCloser, net.Addr, error) {
 	return SerialOpener(sc)(context.Background())
+}
+
+// UDPOpener returns a stream opener for DNP3 over UDP to addr, sending from localPort (0
+// for any free port). Every link frame travels in a datagram, as with client.UDP.
+func UDPOpener(addr string, localPort uint16) client.StreamOpener {
+	if localPort == 0 {
+		return client.UDP(addr)
+	}
+	return func(ctx context.Context) (io.ReadWriteCloser, net.Addr, error) {
+		d := net.Dialer{LocalAddr: &net.UDPAddr{Port: int(localPort)}}
+		conn, err := d.DialContext(ctx, "udp", addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		return conn, conn.RemoteAddr(), nil
+	}
 }
 
 // Session is a client of an outstation, prepared from the configuration of a command.
@@ -246,13 +262,16 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 		}
 		opts = append(opts, client.WithTLS(tc))
 	case config.SchemeUDP:
-		opts = append(opts, client.WithStream(client.UDP(target.Addr())))
+		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), cfg.UDPLocalPort)))
 	case config.SchemeSerial:
 		sc, err := SerialSettings(target.Device, cfg.SerialConfig)
 		if err != nil {
 			return target, nil, errs.WrapValidation(err)
 		}
 		opts = append(opts, client.WithStream(SerialOpener(sc)))
+	}
+	if target.Scheme != config.SchemeUDP && cfg.UDPLocalPort != 0 {
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("--udp-local-port needs a udp:// URL; the target is %s", target), nil)
 	}
 	if target.Scheme != config.SchemeTLS && cfg.WantsTLS() {
 		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("TLS flags need a tls:// URL or --ip; the target is %s", target), nil)

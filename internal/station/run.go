@@ -237,6 +237,9 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 	}
 	st.event(types.ServerEvent{Event: "stopping"})
 	_ = st.Close()
-	<-served
+	// Serve returns nil after Close; anything else went wrong while stopping.
+	if err := <-served; err != nil {
+		st.event(types.ServerEvent{Event: "error", Detail: fmt.Sprintf("stopping: %v", err)})
+	}
 	return nil
 }
