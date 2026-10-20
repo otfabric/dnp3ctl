@@ -222,4 +222,34 @@ func TestDualEndPoint(t *testing.T) {
 			run(t, append([]string{"server", "start"}, args...)...).want(t, 3)
 		}
 	})
+
+	t.Run("server: command line over the environment", func(t *testing.T) {
+		// A connection style of the server on the command line wins over another one in the
+		// environment; two on the command line stay mutually exclusive.
+		free := strconv.Itoa(int(stationtest.FreePort(t)))
+		for _, c := range []struct {
+			name string
+			env  map[string]string
+			args []string
+			want string
+		}{
+			{"--dial over DNP3CTL_PORT and DNP3CTL_UDP", map[string]string{"DNP3CTL_PORT": free, "DNP3CTL_UDP": "true", "DNP3CTL_UDP_PEER": "127.0.0.1:1"}, []string{"--dial", "tcp://127.0.0.1:" + free}, "dialing"},
+			{"--listen over DNP3CTL_DIAL", map[string]string{"DNP3CTL_DIAL": "tcp://127.0.0.1:" + free}, []string{"--listen", "127.0.0.1", "--port", free}, "tcp://127.0.0.1:" + free},
+			{"--udp over DNP3CTL_SERIAL", map[string]string{"DNP3CTL_SERIAL": "/dev/null"}, []string{"--udp", "--listen", "127.0.0.1", "--port", free}, "udp://127.0.0.1:" + free},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				for k, v := range c.env {
+					t.Setenv(k, v)
+				}
+				run(t, append([]string{"server", "start", "--duration", "1"}, c.args...)...).want(t, 0).has(t, c.want)
+			})
+		}
+		// Two styles both in the environment are refused as well.
+		t.Setenv("DNP3CTL_DIAL", "tcp://127.0.0.1:"+free)
+		t.Setenv("DNP3CTL_PORT", free)
+		run(t, "server", "start").want(t, 3).errHas(t, "--dial cannot be combined")
+		t.Setenv("DNP3CTL_DIAL", "")
+		t.Setenv("DNP3CTL_PORT", "")
+		run(t, "server", "start", "--dial", "tcp://127.0.0.1:"+free, "--port", free).want(t, 3).errHas(t, "--dial cannot be combined")
+	})
 }

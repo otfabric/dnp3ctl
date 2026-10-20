@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/otfabric/dnp3ctl/internal/runner"
 	"github.com/otfabric/dnp3ctl/internal/station"
 	"github.com/otfabric/dnp3ctl/internal/stationtest"
 	"github.com/otfabric/dnp3ctl/internal/types"
@@ -42,6 +45,91 @@ func TestVersionHelpAndUsage(t *testing.T) {
 	run(t, "client", "poll", "--port", "banana").want(t, 2)
 	run(t, "client", "read").want(t, 2).errHas(t, `required flag(s) "object" not set`)
 	run(t, "version", "extra").want(t, 2)
+}
+
+// A usage error (what Cobra rejects before the command runs) is the JSON error object on
+// stdout when the invocation asks for JSON, by --format or DNP3CTL_OUTPUT_FORMAT, and the
+// text error line on stderr otherwise. Either way the exit code is 2.
+func TestUsageErrorsHonourFormat(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		env  string // DNP3CTL_OUTPUT_FORMAT
+		args []string
+		json bool
+		msg  string
+	}{
+		{"unknown flag after --format", "", []string{"client", "poll", "--format", "json", "--nope"}, true, "unknown flag: --nope"},
+		{"unknown flag before --format", "", []string{"client", "poll", "--nope", "--format", "json"}, true, "unknown flag: --nope"},
+		{"--format=json", "", []string{"client", "poll", "--nope", "--format=json"}, true, "unknown flag"},
+		{"the last --format wins", "", []string{"client", "poll", "--format", "json", "--nope", "--format", "text"}, false, "unknown flag"},
+		{"missing required flag", "", []string{"client", "read", "--format", "json"}, true, `required flag(s) "object" not set`},
+		{"value a flag cannot hold", "", []string{"client", "poll", "--port", "banana", "--format", "json"}, true, `invalid argument "banana" for "--port"`},
+		{"unknown command", "", []string{"nope", "--format", "json"}, true, `unknown command "nope"`},
+		{"unknown subcommand", "", []string{"client", "nope", "--format", "json"}, true, "unknown flag: --format"},
+		{"too many arguments", "", []string{"version", "extra", "--format", "json"}, true, ""},
+		{"--format after --", "", []string{"client", "poll", "--nope", "--", "--format", "json"}, false, "unknown flag"},
+		{"invalid --format", "", []string{"client", "poll", "--nope", "--format", "xml"}, false, "unknown flag"},
+		{"environment", "json", []string{"client", "read"}, true, `required flag(s) "object" not set`},
+		{"environment, unknown flag", "json", []string{"client", "poll", "--nope"}, true, "unknown flag: --nope"},
+		{"command line over environment", "json", []string{"client", "read", "--format", "text"}, false, "required flag"},
+		{"environment of a command without --format", "json", []string{"nope"}, false, "unknown command"},
+		{"text", "", []string{"client", "poll", "--nope"}, false, "unknown flag: --nope"},
+		// The --format of generate-config is the format of the model it writes, not of stdout.
+		{"generate-config", "", []string{"server", "generate-config", "--format", "json", "--nope"}, false, "unknown flag: --nope"},
+		{"server start", "", []string{"server", "start", "--format", "json", "--nope"}, true, "unknown flag: --nope"},
+		{"discover", "", []string{"discover", "--format", "json", "--nope"}, true, "unknown flag: --nope"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("DNP3CTL_OUTPUT_FORMAT", c.env)
+			r := run(t, c.args...).want(t, 2)
+			if !c.json {
+				r.errHas(t, "error: "+c.msg)
+				if r.stdout != "" {
+					t.Errorf("a text usage error writes to stdout:\n%s", r.stdout)
+				}
+				return
+			}
+			var env struct {
+				Error struct{ Kind, Code, Message string }
+			}
+			r.decode(t, &env)
+			if env.Error.Kind != "usage" || env.Error.Code != "invalid_input" || !strings.Contains(env.Error.Message, c.msg) {
+				t.Errorf("error object: %+v", env.Error)
+			}
+			if r.stderr != "" {
+				t.Errorf("a JSON usage error writes to stderr:\n%s", r.stderr)
+			}
+		})
+	}
+}
+
+// A binary built without the ldflags of the Makefile (go install, go build) reports what the
+// go toolchain recorded: the version of the module and the git revision.
+func TestVersionFromBuildInfo(t *testing.T) {
+	rev := []debug.BuildSetting{{Key: "vcs.revision", Value: "0123456789abcdef0123456789abcdef01234567"}, {Key: "vcs.modified", Value: "false"}}
+	for _, c := range []struct {
+		name, version, commit   string
+		info                    *debug.BuildInfo
+		wantVersion, wantCommit string
+	}{
+		{"ldflags win", "v0.6.3", "abc1234", &debug.BuildInfo{Main: debug.Module{Version: "v9.9.9"}, Settings: rev}, "v0.6.3", "abc1234"},
+		{"go install of a version", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3"}}, "v0.6.3", ""},
+		{"go build without a version", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: rev}, "dev", "0123456"},
+		{"go build in a clone", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3-0.20261020120000-0123456789ab"}}, "v0.6.3-0.20261020120000-0123456789ab", ""},
+		{"no module version", "dev", "", &debug.BuildInfo{}, "dev", ""},
+		{"no build info", "dev", "", nil, "dev", ""},
+		{"empty version", " ", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3"}}, "v0.6.3", ""},
+		{"short revision", "dev", "", &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}}}, "dev", "abc"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v, commit := versionOf(c.version, c.commit, c.info)
+			if v != c.wantVersion || commit != c.wantCommit {
+				t.Errorf("versionOf(%q, %q) = %q, %q; want %q, %q", c.version, c.commit, v, commit, c.wantVersion, c.wantCommit)
+			}
+		})
+	}
+	SetBuildMeta("dev", "", "", "")
+	run(t, "version").want(t, 0).has(t, "dnp3ctl version: ")
 }
 
 func TestCompletion(t *testing.T) {
@@ -97,6 +185,13 @@ func TestFlagsDocumentTheirEnvironment(t *testing.T) {
 		}
 		if c.Runnable() && !c.HasSubCommands() && c.Example == "" && c.Name() != "version" {
 			t.Errorf("%s has no examples", c.CommandPath())
+		}
+		// Every --format is the format of stdout, which a usage error honours, except the
+		// format of the model generate-config writes.
+		if c.LocalFlags().Lookup("format") != nil {
+			if _, ok := runner.RequestedFormat(c, nil); ok != (c.Name() != "generate-config") {
+				t.Errorf("%s --format: format of stdout %t", c.CommandPath(), ok)
+			}
 		}
 		if c.Runnable() && !c.HasSubCommands() && c.Name() != "version" {
 			seen := map[string]bool{}
@@ -277,15 +372,37 @@ func TestServer(t *testing.T) {
 		run(t, "client", "read", "--url", url, "--object", "g1v2", "--udp-local-port", local).want(t, 0).has(t, "3 objects")
 		stop()
 		r := (<-done).want(t, 0).has(t, "listening", "udp://127.0.0.1:"+port)
-		// The event log names the master the outstation answers, not its own socket.
-		remotes := map[string]bool{}
+		// The event log names the master the outstation answers, not its own socket, and
+		// says connected once the first datagram names a master.
+		remotes, connected := map[string]bool{}, map[string]bool{}
 		for _, line := range strings.Split(r.stdout, "\n") {
-			if f := strings.Fields(line); len(f) > 2 && f[1] == "request" {
+			f := strings.Fields(line)
+			switch {
+			case len(f) > 1 && f[1] == "connected":
+				if len(f) < 3 {
+					t.Errorf("connected without a remote: %q", line)
+					continue
+				}
+				connected[f[2]] = true
+			case len(f) > 2 && f[1] == "request":
 				remotes[f[2]] = true
 			}
 		}
 		if !remotes["127.0.0.1:"+local] || remotes["127.0.0.1:"+port] {
 			t.Errorf("remotes of the requests: %v\n%s", remotes, r.stdout)
+		}
+		if len(connected) != 1 || connected["127.0.0.1:"+port] || connected["127.0.0.1:"+local] {
+			t.Errorf("connected: %v, want the first master only\n%s", connected, r.stdout)
+		}
+		if strings.Index(r.stdout, " connected ") > strings.Index(r.stdout, " request ") {
+			t.Errorf("connected is logged after the first request:\n%s", r.stdout)
+		}
+
+		// Without a datagram no master is known: neither connected nor disconnected is
+		// logged.
+		r = run(t, "server", "start", "--listen", "127.0.0.1", "--port", port, "--udp", "--duration", "1").want(t, 0).has(t, "listening", "stopping")
+		if strings.Contains(r.stdout, "connected") {
+			t.Errorf("a UDP server no master sent to logs a connection:\n%s", r.stdout)
 		}
 	})
 
@@ -312,7 +429,11 @@ func TestServer(t *testing.T) {
 			t.Errorf("no link frame from the outstation: %d octets from %v, %v", n, from, err)
 		}
 		stop()
-		(<-done).want(t, 0).has(t, master.LocalAddr().String())
+		// The master is known from the start: connected names it before it sent anything.
+		r := (<-done).want(t, 0)
+		if !regexp.MustCompile(`\sconnected\s+` + regexp.QuoteMeta(master.LocalAddr().String()) + `\s`).MatchString(r.stdout) {
+			t.Errorf("connected does not name the master of --udp-peer:\n%s", r.stdout)
+		}
 	})
 
 	t.Run("secure authentication with key change", func(t *testing.T) {
@@ -397,6 +518,9 @@ func TestServer(t *testing.T) {
 					// server's own socket.
 					if remote, _ := e["remote"].(string); transport == "udp" && e["event"] != "listening" && remote == "127.0.0.1:"+port {
 						t.Errorf("%s names the server's socket as the remote: %v", e["event"], e)
+					}
+					if remote, _ := e["remote"].(string); (e["event"] == "connected" || e["event"] == "disconnected") && remote == "" {
+						t.Errorf("%s without a remote: %v", e["event"], e)
 					}
 				}
 			})

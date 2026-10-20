@@ -165,7 +165,7 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
 | Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
 | Robustness       | Timeouts per fragment and per request, retries of the requests that are safe to repeat (never controls), reconnects in `monitor`. |
-| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. `server generate-config --format` picks `yaml` or `json`. |
+| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. `server generate-config --format` picks `yaml` or `json`, since it writes a model file, not a result. |
 | `--debug`        | Trace every link frame and application fragment sent and received, decoded, to stderr.                                   |
 | Completion       | Shell completion for bash, zsh, fish and PowerShell; flags with a fixed set of values (**`--format`**, **`--mode`**, **`--op`**, **`--object`**, …) complete to those values. |
 
@@ -343,7 +343,7 @@ cd dnp3ctl
 make build
 ```
 
-`make build` runs `make check` first, which needs `staticcheck`, `golangci-lint` and `govulncheck` on your `PATH`, and writes the binary to **`bin/dnp3ctl`** (see [Building](#building)). Without those tools, `go build -o bin/dnp3ctl .` builds it alone. With a Go toolchain you can also install straight from the module (a binary built with `go install` or a plain `go build` reports version `dev`):
+`make build` runs `make check` first, which needs `staticcheck`, `golangci-lint` and `govulncheck` on your `PATH`, and writes the binary to **`bin/dnp3ctl`** (see [Building](#building)). Without those tools, `go build -o bin/dnp3ctl .` builds it alone. With a Go toolchain you can also install straight from the module (`dnp3ctl version` then reports the version the go toolchain records: the module version with `go install`, such as `v0.6.3`, and with a plain `go build` in a clone the version it derives from the git tags, such as `v0.6.3+dirty`, with the commit; `dev` when none is recorded, as in a copy without git):
 
 ```console
 go install github.com/otfabric/dnp3ctl@latest
@@ -408,11 +408,11 @@ Every command has `--help`, with a description and examples. Some have a shorter
 
 **Global flag:** `--debug` — trace every link frame and application fragment sent and received to stderr, decoded, and print the chain of causes after an error.
 
-**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_OUTPUT_FORMAT`**. It controls **only** the result on **stdout** (`server generate-config --format` picks `yaml` or `json` for the model instead). Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
+**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_OUTPUT_FORMAT`**. It controls **only** the result on **stdout** (`server generate-config --format` picks `yaml` or `json` for the model instead: it writes a model file, not a result, and its errors are always text). Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
 
 **Streams:** `client monitor`, `client ping` and `server start` write one record as it happens: one line (**text**), one JSON object per line (**json**, JSON Lines) or one table row (**table**). They run until interrupted with Ctrl-C, which ends them normally; `client ping` stops after `--count` measurements (default 4; `--count 0` runs until interrupted), `client monitor` after `--count` values or `--duration` seconds when given, `server start` after `--duration`.
 
-**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure, `{"error": {"kind", "code", "message"}}`; with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. A usage error (exit code 2) is always the text `error:` line on stderr, also with `--format json`. Exit codes are stable:
+**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure, `{"error": {"kind", "code", "message"}}`; with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` too, given on the command line or, for a command that has `--format`, in `DNP3CTL_OUTPUT_FORMAT`: the same JSON error object with `"kind": "usage"` and `"code": "invalid_input"`. Exit codes are stable:
 
 | Code | Meaning |
 |------|---------|
@@ -431,7 +431,7 @@ See [docs/exitcodes.md](docs/exitcodes.md) for the details and the `code` values
 
 ### Connecting to an outstation
 
-Every `dnp3ctl client` command takes the outstation as a URL, as an address and a port, or, when the outstation connects to the master, the address to wait on. The three styles are **mutually exclusive**, and one of them is required.
+Every `dnp3ctl client` command takes the outstation as a URL, as an address and a port, or, when the outstation connects to the master, the address to wait on. The three styles are **mutually exclusive** on the command line, and one of them is required. A style on the command line wins over the environment: with `--ip` given, `DNP3CTL_URL` and `DNP3CTL_MASTER_LISTEN` are ignored.
 
 | Flags | Connects to |
 |---|---|
@@ -802,8 +802,8 @@ Every event is written to stdout as it happens:
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served. Repeat it (or separate files with commas) to serve several outstations, each at the link address of its model |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
 | `--dial` | Connect to the master instead of listening, at `tcp://host[:port]` or `tls://host[:port]` (the dual end point), and connect again whenever the connection ends, after 1 s and up to 1 min between attempts. The event log starts with `dialing` |
-| `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time |
-| `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything; without it they start once a master has sent a request |
+| `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time. The event log says `connected` when the first datagram arrives, naming its sender as `remote`; a socket no master sent to logs neither `connected` nor `disconnected` |
+| `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything, and `connected` names it at once; without it they start once a master has sent a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
 | `--tls-cert`, `--tls-key` | Serve TLS with this certificate |
 | `--tls-client-ca` | Require a client certificate of this CA (mutual TLS) |
@@ -824,7 +824,7 @@ The full reference of the model is in [docs/server-config.md](docs/server-config
 
 ## Environment Variable Configuration
 
-Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** must still be given on the command line: `--object` (`client read`, `assign-class`), `--type` and `--index` (`operate`), `--type` (`restart`), `--class` (`assign-class`), `--function` (`manage`), `--variation` and `--value` (`write-attribute`), `--index` and `--value` (`write-deadband`), `--path` (`client file info`, `get`, `put`, `rm`; not `ls`, which lists `/`), `--input` (`file put`) and `--subnets` (`discover`). The connection styles stay mutually exclusive across the environment and the flags: with `DNP3CTL_URL` set, `--ip` or `--listen` is refused; unset it, or override it with `--url` (likewise `DNP3CTL_IP` and `DNP3CTL_MASTER_LISTEN` with the other styles). The global flag `--debug` has no environment variable.
+Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** must still be given on the command line: `--object` (`client read`, `assign-class`), `--type` and `--index` (`operate`), `--type` (`restart`), `--class` (`assign-class`), `--function` (`manage`), `--variation` and `--value` (`write-attribute`), `--index` and `--value` (`write-deadband`), `--path` (`client file info`, `get`, `put`, `rm`; not `ls`, which lists `/`), `--input` (`file put`) and `--subnets` (`discover`). The same rule holds across connection styles: when a flag of one style (`--url`, `--ip`, `--listen` of a client; `--dial`, `--serial`, or `--listen`, `--port`, `--udp`, `--udp-peer`, `--allow` of `server start`) is on the command line, the environment variables of the other styles are ignored, so `--ip` works with `DNP3CTL_URL` set. Two styles both on the command line, or both in the environment, are refused as mutually exclusive. The global flag `--debug` has no environment variable.
 
 Three secrets are read **only** from the environment or a file, never from a flag: `DNP3CTL_SA_UPDATE_KEY` and `DNP3CTL_SA_KEY` (the Secure Authentication keys, as hex; or `--sa-update-key-file`, `--sa-key-file`) and `DNP3CTL_FILE_PASSWORD` (the password of `--file-user`; or `--file-password-file`).
 

@@ -14,7 +14,7 @@ These conventions are a **stable contract** for scripting. Field names are snake
 | Durations | `duration_ms`, `rtt_ms`, `delay_ms`, `processing_ms` (numbers, milliseconds with fractions) |
 | Repeated rows | `measurements`, `attributes`, `entries`, `objects`, `devices`, `controls` (client operate): **arrays of objects**, empty arrays rather than null |
 | A failure inside a result | `error` object (`kind`, `code`, `message`); omitted when there is none |
-| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md). A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) is always a text `error:` line on stderr, also with `--format json` |
+| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md). A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) is the same object with `"kind": "usage"` and `"code": "invalid_input"`, whether JSON is asked for by `--format json` or by `DNP3CTL_OUTPUT_FORMAT=json` |
 
 ## Measurement
 
@@ -49,7 +49,7 @@ One point value or event as an outstation reported it. Used by `client poll`, `r
 | `client file get`, `client file put` | `target`, `outstation`, `direction` (`"download"` or `"upload"`), `path` (on the outstation), `local` (the local file; omitted for stdout), `append` (an upload added to the end of the file; omitted otherwise), `length`, `sha256` (of the content), `duration_ms` |
 | `client objects` | `count`, `objects`: `object`, `group`, `variation`, `name`, `event`, `size` (octets of one object, 0 when not fixed) |
 | `discover` | `subnets`, `ports`, `hosts` (addresses probed), `found`, `duration_ms`, `devices`: `ip`, `port`, `status` (`"dnp3"` or `"open"`), `outstation` and `master` (the link addresses of the answer; `"dnp3"` only), `rtt_ms` |
-| `server start` (stream) | one event per line (JSON Lines): `timestamp`, `event`, and where they apply `outstation` (the link address of the outstation the event is about, when several are served), `remote`, `function` (`"READ"`, `"SELECT"`, `"OPERATE"`, …), `object`, `index`, `value`, `status`, `detail`. Events: `listening` (or `dialing` with `--dial`, naming the master in `remote`), `connected`, `disconnected`, `refused`, `request`, `control`, `manage`, `unsolicited`, `time-sync`, `restart`, `write`, `file`, `events-discarded`, `error`, `stopping` |
+| `server start` (stream) | one event per line (JSON Lines): `timestamp`, `event`, and where they apply `outstation` (the link address of the outstation the event is about, when several are served), `remote`, `function` (`"READ"`, `"SELECT"`, `"OPERATE"`, …), `object`, `index`, `value`, `status`, `detail`. Events: `listening` (or `dialing` with `--dial`, naming the master in `remote`), `connected` (over UDP when the first datagram arrives, naming its sender, or at once with `--udp-peer`), `disconnected` (over UDP only after a `connected`), `refused`, `request`, `control`, `manage`, `unsolicited`, `time-sync`, `restart`, `write`, `file`, `events-discarded`, `error`, `stopping` |
 
 ## Streams and stderr
 

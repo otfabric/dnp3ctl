@@ -260,8 +260,8 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 	case p.dial != nil:
 		f.event(types.ServerEvent{Event: "dialing", Remote: p.dial.String(), Detail: detail})
 		// Only Close ends DialAndServe, so that it returns nil when the server stops.
-		st := f.Stations()[0]
-		go func() { served <- st.DialAndServe(context.WithoutCancel(ctx), p.dial.Addr()) }()
+		st, dialCtx := f.Stations()[0], context.WithoutCancel(ctx)
+		go func() { served <- st.DialAndServe(dialCtx, p.dial.Addr()) }()
 	case cfg.UDP:
 		pc, err := net.ListenPacket("udp", listenAddr(cfg, false))
 		if err != nil {
