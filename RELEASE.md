@@ -1,5 +1,11 @@
 # dnp3ctl Releases
 
+## Unreleased
+
+- **go-dnp3 v0.2.1:** Secure Authentication interoperability fixes. The master's challenge reply keeps the sequence number of the critical request; the key change data carries the key status without its MAC, so a second key change within one connection works; the simulated outstation sends 32-octet challenges.
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-10-20  
