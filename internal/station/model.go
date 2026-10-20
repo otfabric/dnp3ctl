@@ -88,6 +88,13 @@ type OutstationSpec struct {
 	// Attributes are the device attributes of set 0, by name ("manufacturer", "product",
 	// ...) or variation number.
 	Attributes map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"`
+	// Indications are the internal indications the outstation reports from the start:
+	// local-control, device-trouble or config-corrupt.
+	Indications []string `yaml:"indications,omitempty" json:"indications,omitempty"`
+	// RefusedFunctions are the management functions the outstation refuses with
+	// NO_FUNC_CODE_SUPPORT: initialize-data, initialize-application, start-application,
+	// stop-application or save-configuration. It accepts the others.
+	RefusedFunctions []string `yaml:"refused_functions,omitempty" json:"refused_functions,omitempty"`
 	// AttributeSets are further sets of device attributes, which a master reads and writes
 	// with the set number (IEEE 1815-2012 clause 11.9.1).
 	AttributeSets []AttributeSetSpec `yaml:"attribute_sets,omitempty" json:"attribute_sets,omitempty"`
@@ -371,6 +378,16 @@ func (m *Model) Validate() error {
 			bad("outstation.attributes.%s: the value is empty", k)
 		}
 	}
+	for _, name := range o.Indications {
+		if _, ok := indicationBits[strings.ToLower(strings.TrimSpace(name))]; !ok {
+			bad("outstation.indications: %q: use local-control, device-trouble or config-corrupt", name)
+		}
+	}
+	for _, name := range o.RefusedFunctions {
+		if _, err := dnp.ManagementFunction(name); err != nil {
+			bad("outstation.refused_functions: %q: use initialize-data, initialize-application, start-application, stop-application or save-configuration", name)
+		}
+	}
 	sets := map[uint16]bool{}
 	for i, as := range o.AttributeSets {
 		what := fmt.Sprintf("outstation.attribute_sets[%d] (set %d)", i, as.Set)
@@ -616,6 +633,13 @@ func (as AttributeSetSpec) attributes() (map[uint8]app.Attribute, error) {
 		return nil, errors.New(strings.Join(problems, "; "))
 	}
 	return out, nil
+}
+
+// indicationBits are the internal indications a model may set.
+var indicationBits = map[string]app.IIN{
+	"local-control":  app.IINLocalControl,
+	"device-trouble": app.IINDeviceTrouble,
+	"config-corrupt": app.IINConfigCorrupt,
 }
 
 // writable returns the writable variations of a validated set.

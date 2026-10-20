@@ -474,3 +474,19 @@ func TestFreezeFunctionsAndPlans(t *testing.T) {
 		t.Error("CheckWriteAttribute accepted no outstation")
 	}
 }
+
+// failingWriter fails every write.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("pipe closed") }
+
+func TestDebugLogger(t *testing.T) {
+	var b bytes.Buffer
+	DebugLogger(&b).Infof("hello %d", 7)
+	if !strings.HasPrefix(b.String(), "debug: log time=") || !strings.Contains(b.String(), "hello 7") {
+		t.Errorf("log line: %q", b.String())
+	}
+	if _, err := (&linePrefixer{w: failingWriter{}}).Write([]byte("x\n")); err == nil {
+		t.Error("a failing writer was not reported")
+	}
+}

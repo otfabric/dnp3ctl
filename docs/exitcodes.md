@@ -10,7 +10,7 @@
 | 4 | Transport (`KindTransport`): the connection cannot be made (refused, unreachable, TLS failure, serial port that does not open, an outstation that does not connect to `--listen` within `--timeout`), is lost, or the server or `--listen` cannot listen |
 | 5 | Timeout (`KindTimeout`): the outstation did not answer a request, a link frame or a confirmation in time |
 | 6 | Refused or protocol error (`KindRefused`, `KindProtocol`): the outstation refused the request (IIN2 error bits, a control status other than `SUCCESS`, a refused file operation, a failed secure authentication), or violated the protocol |
-| 7 | Partial success (`ExitPartial`): a **valid** result was written to stdout, and it holds failures: a poll or read the outstation answered with values while it also reported an error in its IIN, or a failed measurement of `client ping` |
+| 7 | Partial success (`ExitPartial`): a **valid** result was written to stdout, and it holds failures: a poll or read the outstation answered with values while it also reported an error in its IIN, a direct operate of several controls of which some were refused and the others executed, or a failed measurement of `client ping` |
 | 10 | Output / internal (`KindOutput`, `KindInternal`): the result could not be written, the command was interrupted before it had a result, or something unexpected happened |
 
 **Kind vs code:** `kind` drives the exit code; `code` in the JSON error object is stable for machines. Do not parse the human `message`.
@@ -29,7 +29,7 @@
 
 **Streaming commands:** `client monitor`, `client ping` and `server start` write one record at a time. Stopping them with Ctrl-C (SIGINT) or SIGTERM ends the stream normally and does not change the exit code. `client ping` keeps measuring after a failed measurement, which it reports as a record carrying an `error`, and exits `7` when at least one failed; a measurement that fails because the connection is gone ends it with the fatal code of that error. `client monitor` exits `0` when it ends by `--count`, `--duration` or a signal, and `4` when the connection is lost and `--no-reconnect` is set.
 
-**Commands that change an outstation:** `client operate`, `client time-sync`, `client restart`, `client unsolicited`, `client assign-class`, `client freeze`, `client write-attribute`, `client file put` and `client file rm` validate everything before sending; a rejected invocation exits `3` and has sent nothing. A refusal by the outstation exits `6`, a missing answer `5`. Controls, freezes, restarts and file writes are never sent a second time, also not with `--retries`; after a timeout (`5`) a control may or may not have been executed.
+**Commands that change an outstation:** `client operate`, `client time-sync`, `client restart`, `client unsolicited`, `client assign-class`, `client freeze`, `client write-attribute`, `client write-deadband`, `client manage`, `client clear-restart`, `client file put` and `client file rm` validate everything before sending; a rejected invocation exits `3` and has sent nothing. A refusal by the outstation exits `6`, a missing answer `5`. Controls, freezes, restarts and file writes are never sent a second time, also not with `--retries`; after a timeout (`5`) a control may or may not have been executed.
 
 **`--debug`:** adds the frame trace and, after a fatal error, the chain of causes (`cause: …` lines) on stderr. It does not change stdout or the exit code.
 

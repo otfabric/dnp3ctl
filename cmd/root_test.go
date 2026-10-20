@@ -245,7 +245,7 @@ func TestServer(t *testing.T) {
 				t.Errorf("the event log has no %q event:\n%s", want, r.stdout)
 			}
 		}
-		r.errHas(t, "debug:", "link PRI", "app  ")
+		r.errHas(t, "debug:", "link PRI", "app  ", "debug: log ", "component=dnp3.server")
 	})
 
 	t.Run("demo outstation for a while", func(t *testing.T) {
@@ -322,7 +322,8 @@ func TestServer(t *testing.T) {
 		ctx, stop := context.WithCancel(context.Background())
 		done := make(chan result, 1)
 		go func() {
-			done <- runCtx(t, ctx, "server", "start", "--listen", "127.0.0.1", "--port", port, "--sa-update-key-file", keyFile)
+			done <- runCtx(t, ctx, "server", "start", "--listen", "127.0.0.1", "--port", port, "--sa-update-key-file", keyFile,
+				"--sa-reply-timeout", "5000", "--sa-statistics-class", "3", "--sa-statistics-threshold", "2")
 		}()
 		target := []string{"--ip", "127.0.0.1", "--port", port}
 		eventually(t, "the server to answer", func() bool {
@@ -388,5 +389,10 @@ func TestServer(t *testing.T) {
 		run(t, "server", "start", "--serial", "/dev/null", "--parity", "mark").want(t, 3)
 		run(t, "server", "start", "--sa-key-file", filepath.Join(dir, "missing.key")).want(t, 3)
 		run(t, "server", "start", "--format", "xml").want(t, 3)
+		run(t, "server", "start", "--sa-reply-timeout", "100").want(t, 3).errHas(t, "need secure authentication")
+		run(t, "server", "start", "--sa-statistics-threshold", "5").want(t, 3)
+		keyFile := filepath.Join(dir, "invalid-test.key")
+		_ = os.WriteFile(keyFile, []byte(strings.Repeat("a5", 16)), 0o600)
+		run(t, "server", "start", "--sa-update-key-file", keyFile, "--sa-statistics-class", "4").want(t, 3).errHas(t, "use 1-3")
 	})
 }

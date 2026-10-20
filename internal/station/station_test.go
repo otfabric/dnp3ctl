@@ -99,6 +99,8 @@ func TestValidate(t *testing.T) {
 	}{
 		{"outstation: {address: 65520, masters: [10, 65530]}\npoints: []\n", []string{"address 65520", "masters: 65530", "at least one point"}},
 		{"outstation: {masters: [10]}\npoints: [{type: binary-input, index: 0, value: true}]\n", []string{"masters: 10"}},
+		{"outstation: {indications: [local-control, on-fire], refused_functions: [save-configuration, reboot]}\npoints: [{type: binary-input, index: 0, value: true}]\n",
+			[]string{`indications: "on-fire"`, `refused_functions: "reboot"`}},
 		{`outstation:
   attribute_sets:
     - {set: 0, attributes: {1: a}}

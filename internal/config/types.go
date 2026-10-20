@@ -90,12 +90,12 @@ type ReadConfig struct {
 type OperateConfig struct {
 	ConnConfig
 	Type         string `env:"DNP3CTL_CONTROL_TYPE" desc:"Control: crob (control relay output block, g12v1) or analog (analog output block, g41)" flag:"type"`
-	Index        uint32 `env:"DNP3CTL_OPERATE_INDEX" desc:"Point index of the output" flag:"index"`
+	Index        string `env:"DNP3CTL_OPERATE_INDEX" desc:"Point index of the output, or several comma-separated (0,1,4) for several controls in one request" flag:"index"`
 	Op           string `env:"DNP3CTL_OP" desc:"Operation of a crob: latch-on, latch-off, pulse-on, pulse-off, close (pulse on, trip-close code close), trip (pulse on, trip-close code trip) or nul" flag:"op"`
 	Count        uint8  `env:"DNP3CTL_OP_COUNT" desc:"Number of times a crob is executed" flag:"count"`
 	OnTime       uint32 `env:"DNP3CTL_ON_TIME" desc:"On time of a pulse in milliseconds" flag:"on-time"`
 	OffTime      uint32 `env:"DNP3CTL_OFF_TIME" desc:"Off time of a pulse in milliseconds" flag:"off-time"`
-	Value        string `env:"DNP3CTL_VALUE" desc:"Set-point value of an analog control" flag:"value"`
+	Value        string `env:"DNP3CTL_VALUE" desc:"Set-point value of an analog control: one for every index, or one per index, comma-separated" flag:"value"`
 	Variation    uint8  `env:"DNP3CTL_VARIATION" desc:"Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise" flag:"variation"`
 	Mode         string `env:"DNP3CTL_OPERATE_MODE" desc:"Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response)" flag:"mode"`
 	Broadcast    string `env:"DNP3CTL_BROADCAST" desc:"Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response" flag:"broadcast"`
@@ -186,6 +186,28 @@ type WriteAttributeConfig struct {
 	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
+// ManageConfig drives `client manage`.
+type ManageConfig struct {
+	ConnConfig
+	Function     string `env:"DNP3CTL_MANAGE_FUNCTION" desc:"Management function: initialize-data, initialize-application, start-application, stop-application or save-configuration" flag:"function"`
+	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+}
+
+// ClearRestartConfig drives `client clear-restart`.
+type ClearRestartConfig struct {
+	ConnConfig
+	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+}
+
+// WriteDeadbandConfig drives `client write-deadband`.
+type WriteDeadbandConfig struct {
+	ConnConfig
+	Indexes      string `env:"DNP3CTL_DEADBAND_INDEX" desc:"Analog inputs whose deadband is written: an index, or several comma-separated" flag:"index"`
+	Value        string `env:"DNP3CTL_DEADBAND" desc:"The deadband: a number of 0 or more" flag:"value"`
+	Variation    uint8  `env:"DNP3CTL_DEADBAND_VARIATION" desc:"Variation of g34: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); 0 = 2 for whole numbers that fit, 3 otherwise" flag:"variation"`
+	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+}
+
 // FileAuthConfig holds the credentials of AUTHENTICATE_FILE. The password is never given on
 // the command line: it is read from --file-password-file or DNP3CTL_FILE_PASSWORD.
 type FileAuthConfig struct {
@@ -264,22 +286,25 @@ type ServerConfig struct {
 	LinkConfig
 	SerialConfig
 	AuthConfig
-	Config       string   `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served" flag:"config"`
-	Listen       string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
-	Port         uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
-	UDP          bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
-	Dial         string   `env:"DNP3CTL_DIAL" desc:"Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends" flag:"dial"`
-	UDPPeer      string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
-	Serial       string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
-	Cert         string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master)" flag:"tls-cert"`
-	Key          string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
-	CACert       string   `env:"DNP3CTL_TLS_CA" desc:"With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots)" flag:"tls-ca"`
-	ClientCA     string   `env:"DNP3CTL_TLS_CLIENT_CA" desc:"PEM file with the CA certificates masters must present a certificate of (mutual TLS)" flag:"tls-client-ca"`
-	Allow        []string `env:"DNP3CTL_ALLOW" desc:"Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any)" flag:"allow"`
-	MaxSessions  uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`
-	Duration     uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
-	OutputFormat string   `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
-	Debug        bool     // set from global --debug (root persistent flag)
+	Config            string   `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served" flag:"config"`
+	Listen            string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
+	Port              uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
+	UDP               bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
+	Dial              string   `env:"DNP3CTL_DIAL" desc:"Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends" flag:"dial"`
+	UDPPeer           string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
+	Serial            string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
+	Cert              string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master)" flag:"tls-cert"`
+	Key               string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
+	CACert            string   `env:"DNP3CTL_TLS_CA" desc:"With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots)" flag:"tls-ca"`
+	ClientCA          string   `env:"DNP3CTL_TLS_CLIENT_CA" desc:"PEM file with the CA certificates masters must present a certificate of (mutual TLS)" flag:"tls-client-ca"`
+	Allow             []string `env:"DNP3CTL_ALLOW" desc:"Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any)" flag:"allow"`
+	SAReplyTimeout    uint32   `env:"DNP3CTL_SA_REPLY_TIMEOUT" desc:"Secure authentication: milliseconds a challenge waits for the master's reply (0 = 10000)" flag:"sa-reply-timeout"`
+	SAStatisticsClass uint8    `env:"DNP3CTL_SA_STATISTICS_CLASS" desc:"Secure authentication: event class 1-3 of security statistic events, g122 (0 = 1)" flag:"sa-statistics-class"`
+	SAStatisticsEvery uint32   `env:"DNP3CTL_SA_STATISTICS_THRESHOLD" desc:"Secure authentication: increments of a security statistic between two of its events (0 = 10)" flag:"sa-statistics-threshold"`
+	MaxSessions       uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`
+	Duration          uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
+	OutputFormat      string   `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
+	Debug             bool     // set from global --debug (root persistent flag)
 }
 
 // GenerateConfigConfig drives `server generate-config`.

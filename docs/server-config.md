@@ -52,6 +52,8 @@ uploads:
 | `event_limit` | Events buffered per point type and master. Default 100; when a buffer is full the oldest event is dropped and IIN2.3 (EVENT_BUFFER_OVERFLOW) is set |
 | `attributes` | Device attributes of set 0 (group 0) as strings, by name or variation number: `manufacturer`, `product`, `software-version`, `hardware-version`, `serial-number`, `device-name`, `location`, `owner`, `user-id`, … (the names `dnp3ctl client attributes` shows). Of these, the user-assigned ones a master may write: `owner`, `location`, `user-id` and `device-name` |
 | `attribute_sets` | Further sets of device attributes; see below |
+| `indications` | Internal indications the outstation reports from the start: `local-control`, `device-trouble`, `config-corrupt` |
+| `refused_functions` | Management functions the outstation refuses with NO_FUNC_CODE_SUPPORT: `initialize-data`, `initialize-application`, `start-application`, `stop-application`, `save-configuration`. It accepts the others, and logs each as a `manage` event |
 
 Durations are strings such as `500ms`, `5s` or `1h`.
 
@@ -193,6 +195,8 @@ A written file appears in its directory and can be read back.
 | ENABLE_UNSOLICITED, DISABLE_UNSOLICITED | per master |
 | ASSIGN_CLASS | changes the event class of the points |
 | READ of g34 | the deadbands of the analog inputs (their `deadband`) |
+| WRITE of g34 | sets the deadband of the analog inputs; PARAMETER_ERROR for an index that is not one |
+| INITIALIZE_DATA, INITIALIZE_APPL, START_APPL, STOP_APPL, SAVE_CONFIG, ACTIVATE_CONFIG | accepted and logged (`manage` event), unless `refused_functions` lists them |
 | FREEZE_AT_TIME | a freeze at a time to come, repeated at the interval when one is given; time 0 freezes at once. Up to 16 wait at once; a time that has passed, without an interval, is refused |
 | A broadcast (to 0xFFFD, 0xFFFE or 0xFFFF) | executed like the same request to the outstation, not answered; IIN1.0 BROADCAST is set in the next response. With secure authentication a critical broadcast is executed only in aggressive mode with a valid MAC, otherwise discarded |
 | IMMED_FREEZE, FREEZE_CLEAR (and their `_NR` forms) | copies counters into frozen counters and analog inputs into frozen analog inputs; FREEZE_CLEAR resets the counters |

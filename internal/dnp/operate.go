@@ -2,16 +2,19 @@ package dnp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"strconv"
 	"strings"
 
+	dnp3 "github.com/otfabric/go-dnp3"
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/client"
 
 	"github.com/otfabric/dnp3ctl/internal/config"
+	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/types"
 )
 
@@ -84,76 +87,139 @@ var analogVariations = map[uint8]struct {
 	4: {app.G41V4, -math.MaxFloat64, math.MaxFloat64},
 }
 
-// operatePlan validates cfg and returns the command, the mode and the result to fill.
-func operatePlan(cfg *config.OperateConfig) (client.Command, client.CommandMode, *types.OperateResult, error) {
+// parseIndexList parses a comma-separated list of point indexes, each given once.
+func parseIndexList(s, flag string) ([]uint32, error) {
+	var out []uint32
+	seen := map[uint32]bool{}
+	for _, part := range strings.Split(s, ",") {
+		n, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s %q: use an index, or several comma-separated (0,1,4)", flag, s)
+		}
+		if seen[uint32(n)] {
+			return nil, fmt.Errorf("invalid %s %q: index %d is given twice", flag, s, n)
+		}
+		seen[uint32(n)] = true
+		out = append(out, uint32(n))
+	}
+	return out, nil
+}
+
+// parseValues parses --value: one number for every index, or one per index.
+func parseValues(raw string, n int) ([]float64, error) {
+	parts := strings.Split(raw, ",")
+	if len(parts) != 1 && len(parts) != n {
+		return nil, fmt.Errorf("--value has %d values for %d indexes: give one for all, or one per index", len(parts), n)
+	}
+	out := make([]float64, 0, n)
+	for _, p := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, fmt.Errorf("invalid --value %q: use a number", strings.TrimSpace(p))
+		}
+		out = append(out, v)
+	}
+	for len(out) < n {
+		out = append(out, out[0])
+	}
+	return out, nil
+}
+
+// analogVariation returns the object of a set-point: the one of --variation, checked for
+// every value, or g41v1 when every value is a whole number that fits it, g41v3 otherwise.
+func analogVariation(variation uint8, values []float64) (app.GroupVariation, error) {
+	if variation == 0 {
+		for _, v := range values {
+			if v != math.Trunc(v) || v < math.MinInt32 || v > math.MaxInt32 {
+				return app.G41V3, nil
+			}
+		}
+		return app.G41V1, nil
+	}
+	av, ok := analogVariations[variation]
+	if !ok {
+		return 0, fmt.Errorf("invalid --variation %d: use 1 (32-bit), 2 (16-bit), 3 (float) or 4 (double)", variation)
+	}
+	for _, v := range values {
+		text := strconv.FormatFloat(v, 'g', -1, 64)
+		if v < av.lo || v > av.hi {
+			return 0, fmt.Errorf("--value %s is out of range for %s (%g to %g)", text, av.gv, av.lo, av.hi)
+		}
+		if variation <= 2 && v != math.Trunc(v) {
+			return 0, fmt.Errorf("--value %s is not a whole number, which %s needs", text, av.gv)
+		}
+	}
+	return av.gv, nil
+}
+
+// operatePlan validates cfg and returns the controls, the mode and the result to fill.
+func operatePlan(cfg *config.OperateConfig) ([]client.Command, client.CommandMode, *types.OperateResult, error) {
 	mode, modeName, err := operateMode(cfg.Mode)
 	if err != nil {
-		return client.Command{}, 0, nil, err
+		return nil, 0, nil, err
 	}
 	_, broadcast, err := checkBroadcast(cfg.Broadcast, &cfg.ConnConfig)
 	if err != nil {
-		return client.Command{}, 0, nil, err
+		return nil, 0, nil, err
 	}
 	if broadcast != "" && mode == client.SelectBeforeOperate {
-		return client.Command{}, 0, nil, fmt.Errorf("--broadcast needs --mode direct or direct-no-ack: select-before-operate needs an answer, and nobody answers a broadcast")
+		return nil, 0, nil, fmt.Errorf("--broadcast needs --mode direct or direct-no-ack: select-before-operate needs an answer, and nobody answers a broadcast")
 	}
-	res := &types.OperateResult{Mode: modeName, Index: cfg.Index, Broadcast: broadcast}
+	indexes, err := parseIndexList(cfg.Index, "--index")
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	res := &types.OperateResult{Mode: modeName, Index: indexes[0], Broadcast: broadcast}
+	cmds := make([]client.Command, 0, len(indexes))
 	switch strings.ToLower(strings.TrimSpace(cfg.Type)) {
 	case ControlCROB, "binary", "g12", "g12v1":
 		if strings.TrimSpace(cfg.Value) != "" || cfg.Variation != 0 {
-			return client.Command{}, 0, nil, fmt.Errorf("--value and --variation are for --type analog; a crob takes --op")
+			return nil, 0, nil, fmt.Errorf("--value and --variation are for --type analog; a crob takes --op")
 		}
 		o, ok := crobOps[strings.ToLower(strings.TrimSpace(cfg.Op))]
 		if !ok {
-			return client.Command{}, 0, nil, fmt.Errorf("invalid --op %q: use %s", cfg.Op, strings.Join(CROBOps(), ", "))
+			return nil, 0, nil, fmt.Errorf("invalid --op %q: use %s", cfg.Op, strings.Join(CROBOps(), ", "))
 		}
-		count := cfg.Count
-		if count == 0 {
-			return client.Command{}, 0, nil, fmt.Errorf("invalid --count 0: a crob is executed at least once")
+		if cfg.Count == 0 {
+			return nil, 0, nil, fmt.Errorf("invalid --count 0: a crob is executed at least once")
 		}
-		cmd := client.CROB(cfg.Index, o.op, cfg.OnTime, cfg.OffTime)
-		crob := cmd.Value.(app.CROB)
-		crob.TripClose, crob.Count = o.tcc, count
-		cmd.Value, cmd.GV = crob, app.G12V1
+		for _, i := range indexes {
+			cmd := client.CROB(i, o.op, cfg.OnTime, cfg.OffTime)
+			crob := cmd.Value.(app.CROB)
+			crob.TripClose, crob.Count = o.tcc, cfg.Count
+			cmd.Value, cmd.GV = crob, app.G12V1
+			cmds = append(cmds, cmd)
+			res.Controls = append(res.Controls, types.ControlStatus{Index: i})
+		}
 		res.Type, res.Object, res.Op, res.TripClose = ControlCROB, app.G12V1.String(), o.op.String(), o.tcc.String()
-		res.Count, res.OnTimeMs, res.OffTimeMs = count, cfg.OnTime, cfg.OffTime
-		return cmd, mode, res, nil
+		res.Count, res.OnTimeMs, res.OffTimeMs = cfg.Count, cfg.OnTime, cfg.OffTime
+		return cmds, mode, res, nil
 	case ControlAnalog, "setpoint", "set-point", "g41":
 		if strings.TrimSpace(cfg.Op) != "" {
-			return client.Command{}, 0, nil, fmt.Errorf("--op is for --type crob; an analog control takes --value")
+			return nil, 0, nil, fmt.Errorf("--op is for --type crob; an analog control takes --value")
 		}
-		raw := strings.TrimSpace(cfg.Value)
-		if raw == "" {
-			return client.Command{}, 0, nil, fmt.Errorf("an analog control needs --value")
+		if strings.TrimSpace(cfg.Value) == "" {
+			return nil, 0, nil, fmt.Errorf("an analog control needs --value")
 		}
-		v, err := strconv.ParseFloat(raw, 64)
-		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-			return client.Command{}, 0, nil, fmt.Errorf("invalid --value %q: use a number", cfg.Value)
+		values, err := parseValues(cfg.Value, len(indexes))
+		if err != nil {
+			return nil, 0, nil, err
 		}
-		cmd := client.SetPoint(cfg.Index, v)
-		if cfg.Variation != 0 {
-			av, ok := analogVariations[cfg.Variation]
-			if !ok {
-				return client.Command{}, 0, nil, fmt.Errorf("invalid --variation %d: use 1 (32-bit), 2 (16-bit), 3 (float) or 4 (double)", cfg.Variation)
-			}
-			if v < av.lo || v > av.hi {
-				return client.Command{}, 0, nil, fmt.Errorf("--value %s is out of range for %s (%g to %g)", raw, av.gv, av.lo, av.hi)
-			}
-			if cfg.Variation <= 2 && v != math.Trunc(v) {
-				return client.Command{}, 0, nil, fmt.Errorf("--value %s is not a whole number, which %s needs", raw, av.gv)
-			}
-			cmd.GV = av.gv
+		gv, err := analogVariation(cfg.Variation, values)
+		if err != nil {
+			return nil, 0, nil, err
 		}
-		if cmd.GV == 0 {
-			cmd.GV = app.G41V3
-			if v == math.Trunc(v) && v >= math.MinInt32 && v <= math.MaxInt32 {
-				cmd.GV = app.G41V1
-			}
+		for k, i := range indexes {
+			cmd := client.SetPoint(i, values[k])
+			cmd.GV = gv
+			cmds = append(cmds, cmd)
+			v := values[k]
+			res.Controls = append(res.Controls, types.ControlStatus{Index: i, Value: &v})
 		}
-		res.Type, res.Object, res.Value = ControlAnalog, cmd.GV.String(), &v
-		return cmd, mode, res, nil
+		res.Type, res.Object, res.Value = ControlAnalog, gv.String(), res.Controls[0].Value
+		return cmds, mode, res, nil
 	}
-	return client.Command{}, 0, nil, fmt.Errorf("invalid --type %q: use crob or analog", cfg.Type)
+	return nil, 0, nil, fmt.Errorf("invalid --type %q: use crob or analog", cfg.Type)
 }
 
 // CheckOperate validates the configuration of `client operate`.
@@ -165,9 +231,11 @@ func CheckOperate(cfg *config.OperateConfig) error {
 	return err
 }
 
-// Operate executes one control. It is sent once and never repeated.
+// Operate executes controls, all in one request. They are sent once and never repeated.
+// When a direct operate of several controls is refused for some of them, the result lists
+// every status with the error: the others were executed.
 func Operate(ctx context.Context, cfg *config.OperateConfig, trace io.Writer) (*types.OperateResult, error) {
-	cmd, mode, res, err := operatePlan(cfg)
+	cmds, mode, res, err := operatePlan(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -180,23 +248,62 @@ func Operate(ctx context.Context, cfg *config.OperateConfig, trace io.Writer) (*
 	took, err := s.request(ctx, func(ctx context.Context) error {
 		if res.Broadcast == "" {
 			var rerr error
-			statuses, rerr = s.Operate(ctx, mode, cmd)
+			statuses, rerr = s.Operate(ctx, mode, cmds...)
 			return rerr
 		}
-		addr := broadcastAddresses[res.Broadcast]
 		fc := app.FuncDirectOperate
 		if mode == client.DirectOperateNoAck {
 			fc = app.FuncDirectOperateNoAck
 		}
-		return s.Broadcast(ctx, addr, fc, app.Indexed(cmd.GV, app.Object{Index: cmd.Index, Value: cmd.Value}))
+		objs := make([]app.Object, 0, len(cmds))
+		for _, c := range cmds {
+			objs = append(objs, app.Object{Index: c.Index, Value: c.Value})
+		}
+		return s.Broadcast(ctx, broadcastAddresses[res.Broadcast], fc, app.Indexed(cmds[0].GV, objs...))
 	})
-	if err != nil {
-		return nil, WrapError(err)
-	}
 	res.Target, res.Outstation, res.RTTMs = s.Target.String(), s.Outstation, ms(took)
 	res.Status = "not-reported"
-	if mode != client.DirectOperateNoAck && len(statuses) > 0 {
-		res.Status = statuses[0].String()
+	if mode != client.DirectOperateNoAck && res.Broadcast == "" && len(statuses) == len(cmds) {
+		res.Status = app.StatusSuccess.String()
+		for k, st := range statuses {
+			res.Controls[k].Status = st.String()
+			if st != app.StatusSuccess && res.Status == app.StatusSuccess.String() {
+				res.Status = st.String()
+			}
+		}
+	} else {
+		for k := range res.Controls {
+			res.Controls[k].Status = res.Status
+		}
 	}
+	if err == nil {
+		return res, nil
+	}
+	var cmdErr *dnp3.CommandError
+	if !errors.As(err, &cmdErr) || len(cmds) == 1 || len(statuses) != len(cmds) {
+		return nil, WrapError(err)
+	}
+	executed := 0
+	for _, st := range statuses {
+		if st == app.StatusSuccess {
+			executed++
+		}
+	}
+	if mode != client.DirectOperate || executed == 0 {
+		// With select-before-operate a refused select ends the operation, and the statuses
+		// do not tell at which step it was refused: nothing is reported as executed.
+		e, _ := errs.As(WrapError(err))
+		return nil, errs.New(e.Kind, e.Code, e.Message+"; statuses: "+controlStatuses(res.Controls), err)
+	}
+	res.Error = EmbeddedErrorInfo(err)
 	return res, nil
+}
+
+// controlStatuses renders the statuses of several controls for an error message.
+func controlStatuses(cs []types.ControlStatus) string {
+	parts := make([]string, 0, len(cs))
+	for _, c := range cs {
+		parts = append(parts, fmt.Sprintf("index %d %s", c.Index, c.Status))
+	}
+	return strings.Join(parts, ", ")
 }

@@ -92,14 +92,30 @@ type OperateResult struct {
 	// "no-confirm", "confirm" or "optional". Omitted for a control to one outstation.
 	Broadcast string `json:"broadcast,omitempty"`
 	// Status is the command status the outstation echoed: "SUCCESS", or "not-reported" for
-	// direct-no-ack and broadcasts.
-	Status string  `json:"status"`
-	RTTMs  float64 `json:"rtt_ms"`
+	// direct-no-ack and broadcasts. With several controls it is SUCCESS when every control
+	// succeeded, otherwise the first status that is not.
+	Status string `json:"status"`
+	// Controls lists every control of the request (Index and Value above are those of the
+	// first) with its status.
+	Controls []ControlStatus `json:"controls"`
+	RTTMs    float64         `json:"rtt_ms"`
+	// Error is set when a direct operate of several controls was refused for some of them:
+	// the others were executed, and the result is partial (exit code 7).
+	Error *ErrorInfo `json:"error,omitempty"`
 }
 
-func (r *OperateResult) what() string {
+// ControlStatus is one control of a request and the status the outstation echoed.
+type ControlStatus struct {
+	Index  uint32   `json:"index"`
+	Value  *float64 `json:"value,omitempty"`
+	Status string   `json:"status"`
+}
+
+// control describes the control, without its index: "LATCH_ON CLOSE count=1 on=…" for a
+// crob, the value of an analog control.
+func (r *OperateResult) control(value *float64) string {
 	if r.Type == "crob" {
-		s := fmt.Sprintf("%s index %d: %s", r.Object, r.Index, r.Op)
+		s := r.Op
 		if r.TripClose != "" && r.TripClose != "NUL" {
 			s += " " + r.TripClose
 		}
@@ -109,15 +125,40 @@ func (r *OperateResult) what() string {
 		return s
 	}
 	v := 0.0
-	if r.Value != nil {
-		v = *r.Value
+	if value != nil {
+		v = *value
 	}
-	return fmt.Sprintf("%s index %d: %s", r.Object, r.Index, strconv.FormatFloat(v, 'g', -1, 64))
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+// indexes renders the indexes of the controls ("3", "0,1,4").
+func (r *OperateResult) indexes() string {
+	if len(r.Controls) == 0 {
+		return strconv.FormatUint(uint64(r.Index), 10)
+	}
+	parts := make([]string, 0, len(r.Controls))
+	for _, c := range r.Controls {
+		parts = append(parts, strconv.FormatUint(uint64(c.Index), 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *OperateResult) MarshalTextOutput() (string, error) {
-	return fmt.Sprintf("Operate (%s) %s on %s at %s: %s in %.1f ms", r.Mode, r.what(), recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs), nil
+	what := r.control(r.Value)
+	if r.Type != "crob" && len(r.Controls) > 1 {
+		what = "set-points"
+	}
+	s := fmt.Sprintf("Operate (%s) %s index %s: %s on %s at %s: %s in %.1f ms", r.Mode, r.Object, r.indexes(), what, recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs)
+	if len(r.Controls) > 1 {
+		for _, c := range r.Controls {
+			s += fmt.Sprintf("\n  index %-5d %-14s %s", c.Index, r.control(c.Value), c.Status)
+		}
+	}
+	if r.Error != nil {
+		s += "\n  error: " + r.Error.Message
+	}
+	return s, nil
 }
 
 // recipient names who a request went to: the outstation, or every outstation of a
@@ -134,13 +175,17 @@ func (r *OperateResult) TableHeaders() []string {
 	return []string{"OBJECT", "INDEX", "CONTROL", "MODE", "STATUS", "RTT_MS"}
 }
 
-// TableRows implements format.TableMarshaler.
+// TableRows implements format.TableMarshaler: a row per control.
 func (r *OperateResult) TableRows() [][]string {
-	control := ""
-	if _, after, ok := strings.Cut(r.what(), ": "); ok {
-		control = after
+	controls := r.Controls
+	if len(controls) == 0 {
+		controls = []ControlStatus{{Index: r.Index, Value: r.Value, Status: r.Status}}
 	}
-	return [][]string{{r.Object, strconv.FormatUint(uint64(r.Index), 10), control, r.Mode, r.Status, fmt.Sprintf("%.1f", r.RTTMs)}}
+	rows := make([][]string, 0, len(controls))
+	for _, c := range controls {
+		rows = append(rows, []string{r.Object, strconv.FormatUint(uint64(c.Index), 10), r.control(c.Value), r.Mode, c.Status, fmt.Sprintf("%.1f", r.RTTMs)})
+	}
+	return rows
 }
 
 // ConfirmedResult is the result of a request that is answered by a null response alone:
@@ -150,7 +195,8 @@ type ConfirmedResult struct {
 	Outstation uint16 `json:"outstation"`
 	// Request is "time-sync", "cold-restart", "warm-restart", "enable-unsolicited",
 	// "disable-unsolicited", "assign-class", "freeze", "freeze-clear", "freeze-at-time",
-	// "write-attribute" or "delete-file".
+	// "write-attribute", "write-deadband", "clear-restart", "delete-file", or the
+	// management function of `client manage` ("save-configuration", ...).
 	Request string `json:"request"`
 	// Method is the time synchronization procedure: "lan", "non-lan" or "write".
 	Method string `json:"method,omitempty"`
@@ -172,6 +218,10 @@ type ConfirmedResult struct {
 	// Broadcast is the broadcast address the request went to: "no-confirm", "confirm" or
 	// "optional". Nobody answers a broadcast.
 	Broadcast string `json:"broadcast,omitempty"`
+	// Function is the function code of a management function ("SAVE_CONFIG").
+	Function string `json:"function,omitempty"`
+	// Value is the deadband of write-deadband.
+	Value *float64 `json:"value,omitempty"`
 	// Set and Attribute are the attribute set and the attribute of write-attribute.
 	Set       *int       `json:"set,omitempty"`
 	Attribute *Attribute `json:"attribute,omitempty"`
@@ -210,6 +260,15 @@ func (r *ConfirmedResult) detail() string {
 		}
 	case "delete-file":
 		return r.Path
+	case "write-deadband":
+		v := 0.0
+		if r.Value != nil {
+			v = *r.Value
+		}
+		return fmt.Sprintf("%s%s = %s", strings.Join(r.Objects, ","), rangeSuffix(r.Range), strconv.FormatFloat(v, 'g', -1, 64))
+	}
+	if r.Function != "" {
+		return r.Function
 	}
 	return ""
 }
@@ -596,7 +655,7 @@ func (r *DiscoverResult) TableRows() [][]string {
 type ServerEvent struct {
 	Timestamp string `json:"timestamp"`
 	// Event is "listening", "connected", "disconnected", "refused", "request", "control",
-	// "unsolicited", "time-sync", "restart", "write", "file", "events-discarded",
+	// "manage", "unsolicited", "time-sync", "restart", "write", "file", "events-discarded",
 	// "stopping" or "error".
 	Event  string `json:"event"`
 	Remote string `json:"remote,omitempty"`

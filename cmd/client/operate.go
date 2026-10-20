@@ -8,6 +8,7 @@ import (
 	"github.com/otfabric/dnp3ctl/internal/cli"
 	"github.com/otfabric/dnp3ctl/internal/config"
 	"github.com/otfabric/dnp3ctl/internal/dnp"
+	"github.com/otfabric/dnp3ctl/internal/runner"
 )
 
 func newOperateCmd() *cobra.Command {
@@ -39,6 +40,13 @@ changes a set-point. Know what an index controls before you send to it. Everythi
 validated before anything is sent, and a control is sent exactly once: it is never
 repeated, also not with --retries and also not when its response does not arrive.
 
+--index takes several indexes, comma-separated, to send several controls in one request:
+the same --op to every output, or with --type analog one --value for all or one per index.
+The outstation executes them together and echoes a status for each. When a direct operate
+is refused for some of them, the others were executed: the result lists every status and
+the exit code is 7. With select-before-operate a refused SELECT ends the operation and
+nothing is executed.
+
 --broadcast sends the control to every outstation on the channel at once, at one of the
 broadcast addresses, with --mode direct or direct-no-ack. Nobody answers it, so no status
 is reported: each outstation sets IIN1.0 BROADCAST in its next response. A broadcast cannot
@@ -65,6 +73,12 @@ may or may not have been executed.`,
   # Secure Authentication with session key change; the OPERATE in aggressive mode
   dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file rtu.key --sa-aggressive
 
+  # Latch three outputs on in one request
+  dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0,1,4 --op latch-on --mode direct
+
+  # Two set-points in one request
+  dnp3ctl client operate --ip 192.168.1.20 --type analog --index 0,1 --value 11.2,230
+
   # Open the breaker at index 3 of every outstation on the line, without answers
   dnp3ctl client operate --url serial:///dev/ttyUSB0 --type crob --index 3 --op trip --mode direct-no-ack --broadcast no-confirm
 `,
@@ -82,7 +96,8 @@ may or may not have been executed.`,
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
 			func() error { return dnp.CheckOperate(&cfg) },
-			func(ctx context.Context) (any, error) { return dnp.Operate(ctx, &cfg, cmd.ErrOrStderr()) })
+			func(ctx context.Context) (any, error) { return dnp.Operate(ctx, &cfg, cmd.ErrOrStderr()) },
+			runner.WithSuccessExit(partialExit))
 	}
 	return cmd
 }

@@ -58,12 +58,14 @@ its master (the dual end point), tcp:// or tls://, and connects again whenever t
 connection ends. With --sa-update-key-file or --sa-key-file (or DNP3CTL_SA_UPDATE_KEY,
 DNP3CTL_SA_KEY) it requires Secure Authentication v5: critical requests are challenged,
 or accepted in aggressive mode, and executed only with the right MAC; the security
-statistics of every master are kept (g121, events g122).
+statistics of every master are kept (g121, events g122 of --sa-statistics-class every
+--sa-statistics-threshold increments), and a challenge waits --sa-reply-timeout for its
+reply.
 
-Every event (connections, requests, controls, unsolicited responses, file transfers) is
-written to stdout as it happens: one line with --format text, one JSON object per line with
---format json, or one table row with --format table. With --debug every frame is traced to
-stderr.
+Every event (connections, requests, controls, management functions, unsolicited responses,
+file transfers) is written to stdout as it happens: one line with --format text, one JSON
+object per line with --format json, or one table row with --format table. With --debug
+every frame is traced to stderr, together with go-dnp3's own log entries.
 
 The server runs until interrupted (Ctrl-C), or for --duration seconds. It listens on all
 interfaces by default and accepts any client: use --listen, --allow and the masters of the
@@ -99,6 +101,7 @@ model to restrict it.`,
 			_ = c.MarkFlagFilename(f, "pem", "crt", "cer", "key")
 		}
 		_ = c.MarkFlagFilename("sa-key-file")
+		_ = cli.RegisterEnumFlagCompletion(c, "sa-statistics-class", []string{"1", "2", "3"})
 	})
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		cfg.Debug = cli.Debug(cmd)

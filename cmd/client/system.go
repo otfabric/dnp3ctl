@@ -274,3 +274,88 @@ THIS CHANGES THE OUTSTATION. The request is sent once.`,
 	}
 	return cmd
 }
+
+func newManageCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "manage",
+		Short: "Send a management function (INITIALIZE_DATA, START_APPL, SAVE_CONFIG, …)",
+		Long: `Send one of the management functions of IEEE 1815-2012 clause 4.4.8 and report
+whether the outstation accepted it:
+
+  initialize-data         INITIALIZE_DATA (15)
+  initialize-application  INITIALIZE_APPL (16), for every application (g90v1)
+  start-application       START_APPL (17), for every application
+  stop-application        STOP_APPL (18), for every application
+  save-configuration      SAVE_CONFIG (19)
+
+An outstation that does not implement a function refuses it with NO_FUNC_CODE_SUPPORT
+(exit code 6).
+
+THIS CHANGES THE OUTSTATION: stopping its applications stops what it does, and
+initializing data sets its values back. The request is sent once.`,
+		Example: `
+  dnp3ctl client manage --ip 192.168.1.20 --function save-configuration
+  dnp3ctl client manage --ip 192.168.1.20 --function stop-application --format json
+`,
+	}
+	cfg := config.ManageConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg, described("function", dnp.ManagementFunctions()))
+	cli.MustMarkFlagRequired(cmd, "function")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckManage(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.Manage(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newClearRestartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "clear-restart",
+		Short: "Clear the DEVICE_RESTART indication of an outstation (WRITE g80v1 index 7)",
+		Long: `Clear IIN1.7 DEVICE_RESTART, which an outstation sets when it restarts and keeps set
+until a master clears it. The one-shot commands of dnp3ctl leave it set on purpose, so
+that they change nothing they were not asked to; "client monitor" clears it, as a
+long-running master does.`,
+		Example: `
+  dnp3ctl client clear-restart --ip 192.168.1.20
+`,
+	}
+	cfg := config.ClearRestartConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckClearRestart(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.ClearRestart(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newWriteDeadbandCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "write-deadband",
+		Short: "Write the deadband of analog inputs (WRITE g34)",
+		Long: `Write the deadband of the analog inputs --index: how far a value must change before
+the outstation reports an event. Read the deadbands with "client read --object g34".
+
+--variation picks the encoding: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); by
+default 2 for whole numbers and 3 otherwise.
+
+THIS CHANGES THE OUTSTATION: a larger deadband reports fewer events, a smaller one more.`,
+		Example: `
+  dnp3ctl client write-deadband --ip 192.168.1.20 --index 0 --value 0.5
+  dnp3ctl client write-deadband --ip 192.168.1.20 --index 0,1,2 --value 10 --variation 1
+`,
+	}
+	cfg := config.WriteDeadbandConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg, enum("variation", "1", "2", "3"))
+	for _, f := range []string{"index", "value"} {
+		cli.MustMarkFlagRequired(cmd, f)
+	}
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckWriteDeadband(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.WriteDeadband(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}

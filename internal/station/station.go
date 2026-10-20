@@ -41,6 +41,13 @@ type Options struct {
 	Metrics dnp3.Metrics
 	// Now is the clock of time stamps; nil is time.Now.
 	Now func() time.Time
+	// Logger receives go-dnp3's own log entries (the --debug log); nil is silent.
+	Logger dnp3.Logger
+	// AuthReplyTimeout, StatisticsClass and StatisticsThreshold tune Secure Authentication;
+	// zero selects go-dnp3's defaults.
+	AuthReplyTimeout    time.Duration
+	StatisticsClass     uint8
+	StatisticsThreshold uint32
 }
 
 // Station is a simulated outstation serving a model.
@@ -90,6 +97,13 @@ func New(m *Model, o Options) (*Station, error) {
 		return nil, err
 	}
 	st.resolveControls()
+	var iin app.IIN
+	for _, name := range m.Outstation.Indications {
+		iin |= indicationBits[strings.ToLower(strings.TrimSpace(name))]
+	}
+	if iin != 0 {
+		st.srv.SetIndications(iin, true)
+	}
 	st.simulate()
 	return st, nil
 }
@@ -162,7 +176,13 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 		opts = append(opts, server.WithMaxConnections(st.opts.MaxConnections))
 	}
 	if st.opts.Auth != nil {
-		opts = append(opts, server.WithSecureAuthentication(server.SecureAuth{User: *st.opts.Auth}))
+		opts = append(opts, server.WithSecureAuthentication(server.SecureAuth{
+			User: *st.opts.Auth, ReplyTimeout: st.opts.AuthReplyTimeout,
+			StatisticsClass: server.Class(st.opts.StatisticsClass), StatisticsThreshold: st.opts.StatisticsThreshold,
+		}))
+	}
+	if st.opts.Logger != nil {
+		opts = append(opts, server.WithLogger(st.opts.Logger))
 	}
 	return opts, nil
 }
@@ -477,6 +497,21 @@ func (h *handler) WriteAttribute(_ context.Context, variation uint8, a app.Attri
 func (h *handler) WriteAttributeSet(_ context.Context, set uint16, variation uint8, a app.Attribute) error {
 	h.st.event(types.ServerEvent{Event: "write", Object: "g0v" + fmt.Sprint(variation), Value: dnp.AttributeValue(a, set), Detail: fmt.Sprintf("attribute set %d", set)})
 	return nil
+}
+
+// Application implements server.ApplicationHandler: the management functions are accepted
+// and logged, except those the model refuses.
+func (h *handler) Application(_ context.Context, fc app.FunctionCode, _ []app.Header) app.IIN {
+	e := types.ServerEvent{Event: "manage", Function: fc.String()}
+	for _, name := range h.st.model.Outstation.RefusedFunctions {
+		if refused, err := dnp.ManagementFunction(name); err == nil && refused == fc {
+			e.Detail = "refused"
+			h.st.event(e)
+			return app.IINNoFuncCodeSupport
+		}
+	}
+	h.st.event(e)
+	return 0
 }
 
 // WriteOctetString implements server.WriteHandler.
