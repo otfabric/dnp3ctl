@@ -432,3 +432,31 @@ func TestListenOptions(t *testing.T) {
 	}
 	_ = l.Close()
 }
+
+func TestFreezeFunctionsAndPlans(t *testing.T) {
+	for _, c := range []struct {
+		clear, noAck bool
+		want         app.FunctionCode
+	}{
+		{false, false, app.FuncImmediateFreeze},
+		{false, true, app.FuncImmediateFreezeNoAck},
+		{true, false, app.FuncFreezeClear},
+		{true, true, app.FuncFreezeClearNoAck},
+	} {
+		if got := freezeFunction(c.clear, c.noAck); got != c.want {
+			t.Errorf("freezeFunction(%v, %v) = %v, want %v", c.clear, c.noAck, got, c.want)
+		}
+	}
+	// The request functions check their input themselves, also when called without the
+	// check of the command.
+	ctx := context.Background()
+	if _, err := WriteAttribute(ctx, &config.WriteAttributeConfig{Variation: "all", Value: "x"}, nil); err == nil {
+		t.Error("WriteAttribute accepted variation all")
+	}
+	if _, err := Freeze(ctx, &config.FreezeConfig{Interval: "1h"}, nil); err == nil {
+		t.Error("Freeze accepted --interval without --at")
+	}
+	if err := CheckWriteAttribute(&config.WriteAttributeConfig{}); err == nil {
+		t.Error("CheckWriteAttribute accepted no outstation")
+	}
+}

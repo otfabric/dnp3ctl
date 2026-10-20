@@ -98,6 +98,7 @@ type OperateConfig struct {
 	Value        string `env:"DNP3CTL_VALUE" desc:"Set-point value of an analog control" flag:"value"`
 	Variation    uint8  `env:"DNP3CTL_VARIATION" desc:"Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise" flag:"variation"`
 	Mode         string `env:"DNP3CTL_OPERATE_MODE" desc:"Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response)" flag:"mode"`
+	Broadcast    string `env:"DNP3CTL_BROADCAST" desc:"Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response" flag:"broadcast"`
 	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
@@ -161,13 +162,27 @@ type FreezeConfig struct {
 	Range        string `env:"DNP3CTL_RANGE" desc:"Point indexes: a range (0-9), a list (1,4,7) or empty for all points" flag:"range"`
 	Clear        bool   `env:"DNP3CTL_FREEZE_CLEAR" desc:"Reset the counters to zero after the freeze (FREEZE_CLEAR)" flag:"clear"`
 	NoAck        bool   `env:"DNP3CTL_NO_ACK" desc:"Send the no-acknowledgement form (IMMED_FREEZE_NR, FREEZE_CLEAR_NR): no response" flag:"no-ack"`
+	At           string `env:"DNP3CTL_FREEZE_AT" desc:"Freeze at this time instead of at once (FREEZE_AT_TIME): an RFC 3339 time such as 2026-01-31T12:00:00Z" flag:"at"`
+	Interval     string `env:"DNP3CTL_FREEZE_INTERVAL" desc:"With --at: repeat the freeze at this interval, such as 15m or 1h (default: once)" flag:"interval"`
+	Broadcast    string `env:"DNP3CTL_BROADCAST" desc:"Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response" flag:"broadcast"`
 	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // AttributesConfig drives `client attributes`.
 type AttributesConfig struct {
 	ConnConfig
-	Variation    string `env:"DNP3CTL_ATTRIBUTE" desc:"Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or a name such as manufacturer" flag:"variation"`
+	Set          uint16 `env:"DNP3CTL_ATTRIBUTE_SET" desc:"Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation" flag:"set"`
+	Variation    string `env:"DNP3CTL_ATTRIBUTE" desc:"Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or, in set 0, a name such as manufacturer" flag:"variation"`
+	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+}
+
+// WriteAttributeConfig drives `client write-attribute`.
+type WriteAttributeConfig struct {
+	ConnConfig
+	Set          uint16 `env:"DNP3CTL_ATTRIBUTE_SET" desc:"Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation" flag:"set"`
+	Variation    string `env:"DNP3CTL_ATTRIBUTE" desc:"Attribute to write: a variation number 1-253 or, in set 0, a name such as location" flag:"variation"`
+	Value        string `env:"DNP3CTL_ATTRIBUTE_VALUE" desc:"Value to write" flag:"value"`
+	DataType     string `env:"DNP3CTL_ATTRIBUTE_TYPE" desc:"Data type of the value: vstr (visible string), uint, int or float" flag:"data-type"`
 	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
@@ -212,6 +227,7 @@ type FilePutConfig struct {
 	Path         string `env:"DNP3CTL_FILE_PATH" desc:"File to create on the outstation" flag:"path"`
 	Input        string `env:"DNP3CTL_INPUT" desc:"Local file whose content is sent" flag:"input"`
 	Permissions  string `env:"DNP3CTL_PERMISSIONS" desc:"Permissions of the new file: octal (644) or rwx form (rw-r--r--)" flag:"permissions"`
+	Append       bool   `env:"DNP3CTL_APPEND" desc:"Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode)" flag:"append"`
 	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 

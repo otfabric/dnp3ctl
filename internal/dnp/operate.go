@@ -90,7 +90,14 @@ func operatePlan(cfg *config.OperateConfig) (client.Command, client.CommandMode,
 	if err != nil {
 		return client.Command{}, 0, nil, err
 	}
-	res := &types.OperateResult{Mode: modeName, Index: cfg.Index}
+	_, broadcast, err := parseBroadcast(cfg.Broadcast)
+	if err != nil {
+		return client.Command{}, 0, nil, err
+	}
+	if broadcast != "" && mode == client.SelectBeforeOperate {
+		return client.Command{}, 0, nil, fmt.Errorf("--broadcast needs --mode direct or direct-no-ack: select-before-operate needs an answer, and nobody answers a broadcast")
+	}
+	res := &types.OperateResult{Mode: modeName, Index: cfg.Index, Broadcast: broadcast}
 	switch strings.ToLower(strings.TrimSpace(cfg.Type)) {
 	case ControlCROB, "binary", "g12", "g12v1":
 		if strings.TrimSpace(cfg.Value) != "" || cfg.Variation != 0 {
@@ -171,9 +178,17 @@ func Operate(ctx context.Context, cfg *config.OperateConfig, trace io.Writer) (*
 	defer func() { _ = s.Close() }()
 	var statuses []app.CommandStatus
 	took, err := s.request(ctx, func(ctx context.Context) error {
-		var rerr error
-		statuses, rerr = s.Operate(ctx, mode, cmd)
-		return rerr
+		if res.Broadcast == "" {
+			var rerr error
+			statuses, rerr = s.Operate(ctx, mode, cmd)
+			return rerr
+		}
+		addr := broadcastAddresses[res.Broadcast]
+		fc := app.FuncDirectOperate
+		if mode == client.DirectOperateNoAck {
+			fc = app.FuncDirectOperateNoAck
+		}
+		return s.Broadcast(ctx, addr, fc, app.Indexed(cmd.GV, app.Object{Index: cmd.Index, Value: cmd.Value}))
 	})
 	if err != nil {
 		return nil, WrapError(err)

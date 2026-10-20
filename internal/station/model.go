@@ -88,6 +88,20 @@ type OutstationSpec struct {
 	// Attributes are the device attributes of set 0, by name ("manufacturer", "product",
 	// ...) or variation number.
 	Attributes map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"`
+	// AttributeSets are further sets of device attributes, which a master reads and writes
+	// with the set number (IEEE 1815-2012 clause 11.9.1).
+	AttributeSets []AttributeSetSpec `yaml:"attribute_sets,omitempty" json:"attribute_sets,omitempty"`
+}
+
+// AttributeSetSpec is one set of device attributes other than set 0.
+type AttributeSetSpec struct {
+	// Set is the set number, 1-65535.
+	Set uint16 `yaml:"set" json:"set"`
+	// Attributes maps variation numbers 1-253 to values: a string (VSTR), a whole number
+	// (UINT, or INT when negative) or a number with a fraction (FLT).
+	Attributes map[string]any `yaml:"attributes" json:"attributes"`
+	// Writable lists the variations a master may write, with a value of the same type.
+	Writable []uint16 `yaml:"writable,omitempty" json:"writable,omitempty"`
 }
 
 // UnsolicitedSpec configures unsolicited responses.
@@ -357,6 +371,28 @@ func (m *Model) Validate() error {
 			bad("outstation.attributes.%s: the value is empty", k)
 		}
 	}
+	sets := map[uint16]bool{}
+	for i, as := range o.AttributeSets {
+		what := fmt.Sprintf("outstation.attribute_sets[%d] (set %d)", i, as.Set)
+		switch {
+		case as.Set == 0:
+			bad("%s: set 0 is the standard set: give its attributes in outstation.attributes", what)
+		case sets[as.Set]:
+			bad("%s: the set is given twice", what)
+		case len(as.Attributes) == 0:
+			bad("%s: a set needs at least one attribute", what)
+		}
+		sets[as.Set] = true
+		attrs, err := as.attributes()
+		if err != nil {
+			bad("%s: %v", what, err)
+		}
+		for _, v := range as.Writable {
+			if _, ok := attrs[uint8(v)]; (!ok || v > 255) && err == nil {
+				bad("%s: writable variation %d is not an attribute of the set", what, v)
+			}
+		}
+	}
 	if len(m.Points) == 0 {
 		bad("points: an outstation needs at least one point")
 	}
@@ -556,6 +592,60 @@ func attributeVariation(key string) (uint8, error) {
 		return 0, fmt.Errorf("%q is not a device attribute: use a name such as manufacturer or a variation 1-253", key)
 	}
 	return v, nil
+}
+
+// attributes converts the attributes of a set of the model, reporting every invalid one.
+func (as AttributeSetSpec) attributes() (map[uint8]app.Attribute, error) {
+	out := map[uint8]app.Attribute{}
+	var problems []string
+	for key, val := range as.Attributes {
+		n, err := strconv.ParseUint(strings.TrimSpace(key), 10, 8)
+		if err != nil || n == 0 || n >= uint64(app.AttrAllAttributes) {
+			problems = append(problems, fmt.Sprintf("variation %q: use 1-253", key))
+			continue
+		}
+		a, err := setAttribute(uint8(n), val)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		out[uint8(n)] = a
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return nil, errors.New(strings.Join(problems, "; "))
+	}
+	return out, nil
+}
+
+// writable returns the writable variations of a validated set.
+func (as AttributeSetSpec) writable() []uint8 {
+	out := make([]uint8, 0, len(as.Writable))
+	for _, v := range as.Writable {
+		out = append(out, uint8(v))
+	}
+	return out
+}
+
+// setAttribute converts the value of variation v of an attribute set of the model.
+func setAttribute(v uint8, val any) (app.Attribute, error) {
+	switch x := val.(type) {
+	case string:
+		if x == "" || len(x) > 255 {
+			return app.Attribute{}, fmt.Errorf("variation %d: a string holds 1-255 octets", v)
+		}
+		return app.StringAttribute(x), nil
+	case int:
+		switch {
+		case x >= 0 && x <= math.MaxUint32:
+			return app.UintAttribute(uint32(x)), nil
+		case x < 0 && x >= math.MinInt32:
+			return app.IntAttribute(int32(x)), nil
+		}
+	case float64:
+		return app.FloatAttribute(x), nil
+	}
+	return app.Attribute{}, fmt.Errorf("variation %d: value %v: use a string, a whole number (-2147483648 to 4294967295) or a number", v, val)
 }
 
 // cleanName normalizes a file name to an absolute slash-separated path.

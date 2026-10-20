@@ -99,6 +99,16 @@ func TestValidate(t *testing.T) {
 	}{
 		{"outstation: {address: 65520, masters: [10, 65530]}\npoints: []\n", []string{"address 65520", "masters: 65530", "at least one point"}},
 		{"outstation: {masters: [10]}\npoints: [{type: binary-input, index: 0, value: true}]\n", []string{"masters: 10"}},
+		{`outstation:
+  attribute_sets:
+    - {set: 0, attributes: {1: a}}
+    - {set: 2}
+    - {set: 3, attributes: {0: a, 254: b, x: c, 1: "", 2: [1], 3: 5000000000, 4: -3000000000, 5: true}}
+    - {set: 3, attributes: {1: a}, writable: [2, 300]}
+points: [{type: binary-input, index: 0, value: true}]
+`, []string{"set 0 is the standard set", "(set 2): a set needs at least one attribute", `variation "0": use 1-253`, `variation "254"`, `variation "x"`,
+			"variation 1: a string holds 1-255 octets", "variation 2: value [1]", "variation 3: value 5000000000", "variation 4: value -3000000000",
+			"variation 5: value true", "the set is given twice", "writable variation 2 is not an attribute", "writable variation 300"}},
 		{"outstation: {unsolicited: {classes: [0, 4]}}\npoints: [{type: binary-input, index: 0, value: true}]\n",
 			[]string{"classes: 0", "classes: 4", "unsolicited.enabled is not"}},
 		{"outstation: {unsolicited: {enabled: true, hold_count: -1}, time_sync_interval: 10ms, attributes: {colour: red, manufacturer: \"\"}}\npoints: [{type: binary-input, index: 0, value: true}]\n",
@@ -451,6 +461,19 @@ uploads: {accept: true, dir: up}
 	}
 }
 
+// New builds only from a valid model; an invalid attribute set is refused even when the
+// model was not validated first.
+func TestNewRefusesInvalidAttributeSets(t *testing.T) {
+	m, err := Parse([]byte("outstation: {attribute_sets: [{set: 1, attributes: {0: a}}]}\npoints: [{type: binary-input, index: 0, value: true}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, err := New(m, Options{}); err == nil {
+		_ = st.Close()
+		t.Error("New accepted an invalid attribute set")
+	}
+}
+
 func TestHandler(t *testing.T) {
 	var trace bytes.Buffer
 	st, l := newStation(t, simModel+"controls: [{type: crob, index: 0, target: {type: binary-input, index: 0}}]\n", func(o *Options) {
@@ -458,8 +481,14 @@ func TestHandler(t *testing.T) {
 	})
 	h := &handler{st: st}
 	ctx := context.Background()
-	if err := h.WriteAttribute(ctx, 252, app.StringAttribute("x")); err != nil || !l.has("write", "manufacturer") {
-		t.Error("WriteAttribute")
+	// The manufacturer is no user-assigned attribute, and the location is not in the model.
+	for _, v := range []uint8{app.AttrManufacturerName, app.AttrUserLocation} {
+		if err := h.WriteAttribute(ctx, v, app.StringAttribute("x")); err == nil {
+			t.Errorf("WriteAttribute(%d) was accepted", v)
+		}
+	}
+	if !l.has("write", "manufacturer: refused") {
+		t.Error("the refused write was not logged")
 	}
 	if err := h.WriteOctetString(ctx, 0, []byte("y")); err != nil {
 		t.Error("WriteOctetString")

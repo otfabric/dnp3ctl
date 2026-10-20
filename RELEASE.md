@@ -1,5 +1,39 @@
 # dnp3ctl Releases
 
+## v0.5.0
+
+**Date:** 2026-10-20  
+**Previous release:** v0.4.0
+
+### Summary
+
+dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.1.0 added for dnp3-interop's contract 1.3: broadcast, scheduled freezes, device attribute sets, file append and deadband reads. New flags and one new command; nothing that worked before changes.
+
+### Highlights
+
+- **`--broadcast no-confirm|confirm|optional`** on `client operate` (with `--mode direct` or `direct-no-ack`) and `client freeze`: the request goes to every outstation on the channel at a broadcast address. Nobody answers; each outstation sets IIN1.0 BROADCAST in its next response.
+- **`client freeze --at TIME [--interval DURATION]`:** FREEZE_AT_TIME, a freeze at a time to come, repeated at the interval.
+- **Device attribute sets:** `client attributes --set N` reads a set other than the standard set 0.
+- **`client write-attribute`** (new): writes a device attribute of any set, with `--value` of `--data-type vstr|uint|int|float`.
+- **`client file put --append`:** adds to the end of a file (OPEN_FILE in APPEND mode).
+- **`client read --object g34`:** the deadbands of the analog inputs, which outstations now answer.
+- **Simulated outstation:** `attribute_sets` in the model, with writable variations; set 0 accepts writes of the user-assigned attributes the model gives (owner, location, user-id, device-name) and refuses the others; it answers broadcasts, scheduled freezes and reads of deadbands.
+
+### Changed
+
+- The simulated outstation refuses writes of device attributes of set 0 other than the user-assigned ones the model gives; it accepted every write before.
+- Docs name the DSC Systems library "DSC go-dnp3", as dnp3-interop does, and the interop note refers to dnp3-interop v0.4.1 (contract 1.3).
+
+### Upgrade notes
+
+- No breaking changes to commands, flags or JSON output; the JSON gains `broadcast`, `interval`, `set`, `attribute` and `append` fields where they apply.
+
+### Quality
+
+- Every changed line is covered by tests, end to end against the simulated outstation: broadcast controls and freezes, scheduled freezes (also the refusal of a time that has passed), attribute sets read and written (writable and not), set-0 writes, append, deadbands.
+
+---
+
 ## v0.4.0
 
 **Date:** 2026-10-20  

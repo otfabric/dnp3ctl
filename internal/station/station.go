@@ -148,6 +148,13 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 		}
 		opts = append(opts, server.WithAttributes(attrs))
 	}
+	for _, as := range o.AttributeSets {
+		attrs, err := as.attributes()
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, server.WithAttributeSet(as.Set, attrs, as.writable()...))
+	}
 	if st.opts.TLS != nil {
 		opts = append(opts, server.WithTLS(st.opts.TLS))
 	}
@@ -204,6 +211,16 @@ func (st *Station) resolveControls() {
 		}
 		st.controls[pointKey{targets[0], c.Index}] = ctl
 	}
+}
+
+// hasAttribute reports whether the model gives the attribute v of set 0.
+func (st *Station) hasAttribute(v uint8) bool {
+	for k := range st.model.Outstation.Attributes {
+		if variation, err := attributeVariation(k); err == nil && variation == v {
+			return true
+		}
+	}
+	return false
 }
 
 // Server returns the go-dnp3 outstation.
@@ -437,9 +454,28 @@ func (h *handler) SetTime(_ context.Context, t time.Time) {
 	h.st.event(types.ServerEvent{Event: "time-sync", Detail: t.UTC().Format("2006-01-02T15:04:05.000Z07:00")})
 }
 
-// WriteAttribute implements server.WriteHandler.
+// userAttributes are the attributes of set 0 that IEEE 1815-2012 leaves to the user to
+// assign: the ones a master may write, when the model has them.
+var userAttributes = map[uint8]bool{
+	app.AttrOwnerName: true, app.AttrUserLocation: true, app.AttrUserID: true, app.AttrUserDeviceName: true,
+}
+
+// WriteAttribute implements server.WriteHandler. Of set 0 the user-assigned attributes the
+// model gives can be written; others are refused (PARAMETER_ERROR).
 func (h *handler) WriteAttribute(_ context.Context, variation uint8, a app.Attribute) error {
-	h.st.event(types.ServerEvent{Event: "write", Object: "g0v" + fmt.Sprint(variation), Value: a.Text(), Detail: dnp.AttributeName(variation)})
+	e := types.ServerEvent{Event: "write", Object: "g0v" + fmt.Sprint(variation), Value: a.Text(), Detail: dnp.AttributeName(variation)}
+	if !userAttributes[variation] || !h.st.hasAttribute(variation) {
+		e.Detail += ": refused, not a writable attribute"
+		h.st.event(e)
+		return fmt.Errorf("attribute %d is not writable", variation)
+	}
+	h.st.event(e)
+	return nil
+}
+
+// WriteAttributeSet implements server.AttributeSetWriteHandler.
+func (h *handler) WriteAttributeSet(_ context.Context, set uint16, variation uint8, a app.Attribute) error {
+	h.st.event(types.ServerEvent{Event: "write", Object: "g0v" + fmt.Sprint(variation), Value: dnp.AttributeValue(a, set), Detail: fmt.Sprintf("attribute set %d", set)})
 	return nil
 }
 

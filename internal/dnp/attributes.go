@@ -86,25 +86,55 @@ func AttributeName(v uint8) string {
 	return "attribute-" + strconv.Itoa(int(v))
 }
 
-// ParseAttributeVariation parses --variation: all, list, a number 1-255 or a name.
+// ParseAttributeVariation parses --variation of a read: all, list, a number 1-255 or, in
+// set 0, a name.
 func ParseAttributeVariation(s string) (uint8, error) {
+	return parseVariation(s, 0, false)
+}
+
+// parseVariation parses --variation in set; write leaves out all and list, which cannot be
+// written.
+func parseVariation(s string, set uint16, write bool) (uint8, error) {
 	in := strings.ToLower(strings.TrimSpace(s))
-	if in == "" {
+	hint := "all, list, a number 1-255 or, in set 0, a name such as manufacturer"
+	if write {
+		hint = "a number 1-253 or, in set 0, a name such as location"
+	}
+	if in == "" && !write {
 		return app.AttrAllAttributes, nil
 	}
+	v, found := uint8(0), false
 	if n, err := strconv.ParseUint(in, 10, 8); err == nil && n != 0 {
-		return uint8(n), nil
+		v, found = uint8(n), true
 	}
-	for v, name := range AttributeNames {
-		if name == in {
-			return v, nil
+	for code, name := range AttributeNames {
+		if found || name != in {
+			continue
 		}
+		if set != 0 && code != app.AttrAllAttributes && code != app.AttrListOfVariations {
+			return 0, fmt.Errorf("invalid --variation %q: names are those of set 0; in set %d give the variation number", s, set)
+		}
+		v, found = code, true
 	}
-	return 0, fmt.Errorf("invalid --variation %q: use all, list, a number 1-255 or a name such as manufacturer (see docs/json-output.md)", s)
+	if !found || write && v >= app.AttrAllAttributes {
+		return 0, fmt.Errorf("invalid --variation %q: use %s (see docs/json-output.md)", s, hint)
+	}
+	return v, nil
+}
+
+// attributeName names a variation of a set: the names of the standard apply to set 0.
+func attributeName(set uint16, v uint8) string {
+	if set == 0 || v == app.AttrListOfVariations || v == app.AttrAllAttributes {
+		return AttributeName(v)
+	}
+	return "attribute-" + strconv.Itoa(int(v))
 }
 
 // attributeValue decodes the value of an attribute for the results.
-func attributeValue(a app.Attribute) any {
+func attributeValue(a app.Attribute) any { return AttributeValue(a, 0) }
+
+// AttributeValue decodes the value of an attribute of set for the results.
+func AttributeValue(a app.Attribute, set uint16) any {
 	switch a.Type {
 	case app.AttrVisibleString:
 		return a.Text()
@@ -132,7 +162,7 @@ func attributeValue(a app.Attribute) any {
 		if entries, err := a.List(); err == nil {
 			out := make([]types.AttributeListEntry, 0, len(entries))
 			for _, e := range entries {
-				out = append(out, types.AttributeListEntry{Variation: e.Variation, Name: AttributeName(e.Variation), Writable: e.Writable})
+				out = append(out, types.AttributeListEntry{Variation: e.Variation, Name: attributeName(set, e.Variation), Writable: e.Writable})
 			}
 			return out
 		}
@@ -146,13 +176,13 @@ func CheckAttributes(cfg *config.AttributesConfig) error {
 	if err := Validate(&cfg.ConnConfig); err != nil {
 		return err
 	}
-	_, err := ParseAttributeVariation(cfg.Variation)
+	_, err := parseVariation(cfg.Variation, cfg.Set, false)
 	return err
 }
 
 // Attributes reads device attributes (group 0).
 func Attributes(ctx context.Context, cfg *config.AttributesConfig, trace io.Writer) (*types.AttributesResult, error) {
-	variation, err := ParseAttributeVariation(cfg.Variation)
+	variation, err := parseVariation(cfg.Variation, cfg.Set, false)
 	if err != nil {
 		return nil, err
 	}
@@ -164,16 +194,99 @@ func Attributes(ctx context.Context, cfg *config.AttributesConfig, trace io.Writ
 	var attrs map[uint8]app.Attribute
 	if _, err := s.request(ctx, func(ctx context.Context) error {
 		var rerr error
-		attrs, rerr = s.ReadAttributes(ctx, variation)
+		if cfg.Set == 0 {
+			attrs, rerr = s.ReadAttributes(ctx, variation)
+		} else {
+			attrs, rerr = s.ReadAttributeSet(ctx, cfg.Set, variation)
+		}
 		return rerr
 	}); err != nil {
 		return nil, WrapError(err)
 	}
-	res := &types.AttributesResult{Target: s.Target.String(), Outstation: s.Outstation, Attributes: []types.Attribute{}}
+	res := &types.AttributesResult{Target: s.Target.String(), Outstation: s.Outstation, Set: cfg.Set, Attributes: []types.Attribute{}}
 	for _, v := range sortedKeys(attrs) {
-		a := attrs[v]
-		res.Attributes = append(res.Attributes, types.Attribute{Variation: v, Name: AttributeName(v), DataType: a.Type.String(), Value: attributeValue(a)})
+		res.Attributes = append(res.Attributes, describeAttribute(cfg.Set, v, attrs[v]))
 	}
 	res.Count = len(res.Attributes)
 	return res, nil
+}
+
+// describeAttribute is the result form of the attribute v of set.
+func describeAttribute(set uint16, v uint8, a app.Attribute) types.Attribute {
+	return types.Attribute{Variation: v, Name: attributeName(set, v), DataType: a.Type.String(), Value: AttributeValue(a, set)}
+}
+
+// AttributeDataTypes describes the values of --data-type of `client write-attribute`.
+func AttributeDataTypes() map[string]string {
+	return map[string]string{
+		"vstr":  "visible string",
+		"uint":  "unsigned integer, 0-4294967295",
+		"int":   "signed integer, 32 bits",
+		"float": "floating point",
+	}
+}
+
+// ParseAttribute converts --value of the type --data-type into an attribute.
+func ParseAttribute(value, dataType string) (app.Attribute, error) {
+	switch t := strings.ToLower(strings.TrimSpace(dataType)); t {
+	case "", "vstr", "string":
+		if value == "" || len(value) > 255 {
+			return app.Attribute{}, fmt.Errorf("invalid --value: a visible string holds 1-255 octets")
+		}
+		return app.StringAttribute(value), nil
+	case "uint":
+		n, err := strconv.ParseUint(strings.TrimSpace(value), 0, 32)
+		if err != nil {
+			return app.Attribute{}, fmt.Errorf("invalid --value %q for --data-type uint: use 0-4294967295", value)
+		}
+		return app.UintAttribute(uint32(n)), nil
+	case "int":
+		n, err := strconv.ParseInt(strings.TrimSpace(value), 0, 32)
+		if err != nil {
+			return app.Attribute{}, fmt.Errorf("invalid --value %q for --data-type int: use a 32-bit integer", value)
+		}
+		return app.IntAttribute(int32(n)), nil
+	case "float":
+		f, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err != nil {
+			return app.Attribute{}, fmt.Errorf("invalid --value %q for --data-type float: use a number", value)
+		}
+		return app.FloatAttribute(f), nil
+	default:
+		return app.Attribute{}, fmt.Errorf("invalid --data-type %q: use vstr, uint, int or float", dataType)
+	}
+}
+
+func writeAttributePlan(cfg *config.WriteAttributeConfig) (uint8, app.Attribute, error) {
+	v, err := parseVariation(cfg.Variation, cfg.Set, true)
+	if err != nil {
+		return 0, app.Attribute{}, err
+	}
+	a, err := ParseAttribute(cfg.Value, cfg.DataType)
+	return v, a, err
+}
+
+// CheckWriteAttribute validates the configuration of `client write-attribute`.
+func CheckWriteAttribute(cfg *config.WriteAttributeConfig) error {
+	if err := Validate(&cfg.ConnConfig); err != nil {
+		return err
+	}
+	_, _, err := writeAttributePlan(cfg)
+	return err
+}
+
+// WriteAttribute writes a device attribute of a set.
+func WriteAttribute(ctx context.Context, cfg *config.WriteAttributeConfig, trace io.Writer) (*types.ConfirmedResult, error) {
+	v, a, err := writeAttributePlan(cfg)
+	if err != nil {
+		return nil, err
+	}
+	set, attr := int(cfg.Set), describeAttribute(cfg.Set, v, a)
+	res := &types.ConfirmedResult{Request: "write-attribute", Set: &set, Attribute: &attr}
+	return confirmed(ctx, &cfg.ConnConfig, trace, res, func(ctx context.Context, s *Session) error {
+		if cfg.Set == 0 {
+			return s.WriteAttribute(ctx, v, a)
+		}
+		return s.WriteAttributeSet(ctx, cfg.Set, v, a)
+	})
 }

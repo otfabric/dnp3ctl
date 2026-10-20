@@ -111,13 +111,15 @@ func newFilePutCmd() *cobra.Command {
 		Aliases: []string{"upload"},
 		Short:   "Write a file to the outstation",
 		Long: `Send the local file --input to the outstation as --path, with the permissions of
---permissions (default rw-r--r--).
+--permissions (default rw-r--r--). With --append the content is added to the end of the
+file instead (OPEN_FILE in APPEND mode), for logs and other files that grow.
 
-THIS CHANGES THE OUTSTATION: an existing file of that name is replaced, and the file may
-be a configuration the outstation acts on. The transfer is not repeated.`,
+THIS CHANGES THE OUTSTATION: an existing file of that name is replaced (or added to), and
+the file may be a configuration the outstation acts on. The transfer is not repeated.`,
 		Example: `
   dnp3ctl client file put --ip 192.168.1.20 --input settings.xml --path /config/settings.xml
   dnp3ctl client file put --ip 192.168.1.20 --input fw.bin --path /fw.bin --permissions 600 --block-size 1024
+  dnp3ctl client file put --ip 192.168.1.20 --input today.csv --path /logs/events.csv --append
 `,
 	}
 	cfg := config.FilePutConfig{ConnConfig: connDefaults(), OutputFormat: text}

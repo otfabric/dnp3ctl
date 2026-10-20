@@ -88,8 +88,11 @@ type OperateResult struct {
 	OffTimeMs uint32 `json:"off_time_ms,omitempty"`
 	// Value is the set-point of an analog control.
 	Value *float64 `json:"value,omitempty"`
+	// Broadcast is the broadcast address the control went to instead of the outstation:
+	// "no-confirm", "confirm" or "optional". Omitted for a control to one outstation.
+	Broadcast string `json:"broadcast,omitempty"`
 	// Status is the command status the outstation echoed: "SUCCESS", or "not-reported" for
-	// direct-no-ack.
+	// direct-no-ack and broadcasts.
 	Status string  `json:"status"`
 	RTTMs  float64 `json:"rtt_ms"`
 }
@@ -114,7 +117,16 @@ func (r *OperateResult) what() string {
 
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *OperateResult) MarshalTextOutput() (string, error) {
-	return fmt.Sprintf("Operate (%s) %s on outstation %d at %s: %s in %.1f ms", r.Mode, r.what(), r.Outstation, r.Target, r.Status, r.RTTMs), nil
+	return fmt.Sprintf("Operate (%s) %s on %s at %s: %s in %.1f ms", r.Mode, r.what(), recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs), nil
+}
+
+// recipient names who a request went to: the outstation, or every outstation of a
+// broadcast.
+func recipient(outstation uint16, broadcast string) string {
+	if broadcast != "" {
+		return "every outstation (broadcast, " + broadcast + ")"
+	}
+	return "outstation " + strconv.Itoa(int(outstation))
 }
 
 // TableHeaders implements format.TableMarshaler.
@@ -137,12 +149,15 @@ type ConfirmedResult struct {
 	Target     string `json:"target"`
 	Outstation uint16 `json:"outstation"`
 	// Request is "time-sync", "cold-restart", "warm-restart", "enable-unsolicited",
-	// "disable-unsolicited", "assign-class", "freeze", "freeze-clear" or "delete-file".
+	// "disable-unsolicited", "assign-class", "freeze", "freeze-clear", "freeze-at-time",
+	// "write-attribute" or "delete-file".
 	Request string `json:"request"`
 	// Method is the time synchronization procedure: "lan", "non-lan" or "write".
 	Method string `json:"method,omitempty"`
-	// Time is the time a time synchronization wrote, as this computer saw it.
-	Time string `json:"time,omitempty"`
+	// Time is the time a time synchronization wrote, as this computer saw it, or the time of
+	// a freeze-at-time; Interval the interval it repeats at.
+	Time     string `json:"time,omitempty"`
+	Interval string `json:"interval,omitempty"`
 	// DelayMs is the time after which an outstation that restarts can be polled again.
 	DelayMs *float64 `json:"delay_ms,omitempty"`
 	// Classes are the classes unsolicited responses were enabled or disabled for; Class is
@@ -154,6 +169,12 @@ type ConfirmedResult struct {
 	Range   string   `json:"range,omitempty"`
 	// NoAck is set when the request was sent in its no-acknowledgement form.
 	NoAck bool `json:"no_ack,omitempty"`
+	// Broadcast is the broadcast address the request went to: "no-confirm", "confirm" or
+	// "optional". Nobody answers a broadcast.
+	Broadcast string `json:"broadcast,omitempty"`
+	// Set and Attribute are the attribute set and the attribute of write-attribute.
+	Set       *int       `json:"set,omitempty"`
+	Attribute *Attribute `json:"attribute,omitempty"`
 	// Path is the file of delete-file.
 	Path  string  `json:"path,omitempty"`
 	RTTMs float64 `json:"rtt_ms"`
@@ -177,6 +198,16 @@ func (r *ConfirmedResult) detail() string {
 		return fmt.Sprintf("%s%s to class %d", strings.Join(r.Objects, ","), rangeSuffix(r.Range), c)
 	case "freeze", "freeze-clear":
 		return strings.Join(r.Objects, ",") + rangeSuffix(r.Range)
+	case "freeze-at-time":
+		s := strings.Join(r.Objects, ",") + rangeSuffix(r.Range) + " at " + r.Time
+		if r.Interval != "" {
+			s += " every " + r.Interval
+		}
+		return s
+	case "write-attribute":
+		if r.Set != nil && r.Attribute != nil {
+			return fmt.Sprintf("set %d variation %d %s = %s", *r.Set, r.Attribute.Variation, r.Attribute.Name, r.Attribute.valueText())
+		}
 	case "delete-file":
 		return r.Path
 	}
@@ -193,10 +224,13 @@ func rangeSuffix(rng string) string {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *ConfirmedResult) MarshalTextOutput() (string, error) {
 	verdict := fmt.Sprintf("confirmed in %.1f ms", r.RTTMs)
-	if r.NoAck {
+	switch {
+	case r.Broadcast != "":
+		verdict = "sent; a broadcast is not answered"
+	case r.NoAck:
 		verdict = "sent without acknowledgement"
 	}
-	return fmt.Sprintf("%s (%s) of outstation %d at %s: %s", r.Request, r.detail(), r.Outstation, r.Target, verdict), nil
+	return fmt.Sprintf("%s (%s) of %s at %s: %s", r.Request, r.detail(), recipient(r.Outstation, r.Broadcast), r.Target, verdict), nil
 }
 
 // TableHeaders implements format.TableMarshaler.
@@ -207,7 +241,7 @@ func (r *ConfirmedResult) TableHeaders() []string {
 // TableRows implements format.TableMarshaler.
 func (r *ConfirmedResult) TableRows() [][]string {
 	result := "confirmed"
-	if r.NoAck {
+	if r.NoAck || r.Broadcast != "" {
 		result = "sent"
 	}
 	return [][]string{{strconv.Itoa(int(r.Outstation)), r.Request, r.detail(), result, fmt.Sprintf("%.1f", r.RTTMs)}}
@@ -292,8 +326,10 @@ type AttributeListEntry struct {
 
 // AttributesResult is the result of `client attributes`.
 type AttributesResult struct {
-	Target     string      `json:"target"`
-	Outstation uint16      `json:"outstation"`
+	Target     string `json:"target"`
+	Outstation uint16 `json:"outstation"`
+	// Set is the device attribute set read; 0 is the standard set.
+	Set        uint16      `json:"set"`
 	Count      int         `json:"count"`
 	Attributes []Attribute `json:"attributes"`
 }
@@ -320,7 +356,11 @@ func (a Attribute) valueText() string {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *AttributesResult) MarshalTextOutput() (string, error) {
 	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "Device attributes of outstation %d at %s: %d\n", r.Outstation, r.Target, r.Count)
+	set := ""
+	if r.Set != 0 {
+		set = fmt.Sprintf(" (set %d)", r.Set)
+	}
+	_, _ = fmt.Fprintf(&b, "Device attributes%s of outstation %d at %s: %d\n", set, r.Outstation, r.Target, r.Count)
 	for _, a := range r.Attributes {
 		_, _ = fmt.Fprintf(&b, "  %3d  %-34s %-5s %s\n", a.Variation, a.Name, a.DataType, a.valueText())
 	}
@@ -418,8 +458,10 @@ type FileTransferResult struct {
 	// Direction is "download" or "upload".
 	Direction string `json:"direction"`
 	// Path is the file on the outstation; Local the local file (empty for stdout).
-	Path       string  `json:"path"`
-	Local      string  `json:"local,omitempty"`
+	Path  string `json:"path"`
+	Local string `json:"local,omitempty"`
+	// Append is set for an upload added to the end of an existing file.
+	Append     bool    `json:"append,omitempty"`
 	Length     int64   `json:"length"`
 	SHA256     string  `json:"sha256"`
 	DurationMs float64 `json:"duration_ms"`
@@ -428,7 +470,10 @@ type FileTransferResult struct {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *FileTransferResult) MarshalTextOutput() (string, error) {
 	verb, where := "Fetched", "from"
-	if r.Direction == "upload" {
+	switch {
+	case r.Append:
+		verb, where = "Appended", "to"
+	case r.Direction == "upload":
 		verb, where = "Delivered", "to"
 	}
 	s := fmt.Sprintf("%s %s %s outstation %d at %s: %d octets in %.0f ms\n  sha256: %s", verb, r.Path, where, r.Outstation, r.Target, r.Length, r.DurationMs, r.SHA256)

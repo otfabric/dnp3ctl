@@ -39,6 +39,10 @@ changes a set-point. Know what an index controls before you send to it. Everythi
 validated before anything is sent, and a control is sent exactly once: it is never
 repeated, also not with --retries and also not when its response does not arrive.
 
+--broadcast sends the control to every outstation on the channel at once, at one of the
+broadcast addresses, with --mode direct or direct-no-ack. Nobody answers it, so no status
+is reported: each outstation sets IIN1.0 BROADCAST in its next response.
+
 A control the outstation refuses (a status other than SUCCESS, such as NO_SELECT, LOCAL or
 NOT_SUPPORTED) ends with exit code 6; a missing response with 5, after which the control
 may or may not have been executed.`,
@@ -57,6 +61,9 @@ may or may not have been executed.`,
 
   # Secure Authentication with session key change; the OPERATE in aggressive mode
   dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file rtu.key --sa-aggressive
+
+  # Open the breaker at index 3 of every outstation on the line, without answers
+  dnp3ctl client operate --url serial:///dev/ttyUSB0 --type crob --index 3 --op trip --mode direct-no-ack --broadcast no-confirm
 `,
 	}
 	cfg := config.OperateConfig{ConnConfig: connDefaults(), Mode: dnp.ModeSBO, Count: 1, OutputFormat: text}
@@ -64,7 +71,8 @@ may or may not have been executed.`,
 		described("type", dnp.ControlTypes()),
 		described("mode", dnp.OperateModes()),
 		enum("op", dnp.CROBOps()...),
-		enum("variation", "1", "2", "3", "4"))
+		enum("variation", "1", "2", "3", "4"),
+		described("broadcast", dnp.BroadcastModes()))
 	for _, f := range []string{"type", "index"} {
 		cli.MustMarkFlagRequired(cmd, f)
 	}
