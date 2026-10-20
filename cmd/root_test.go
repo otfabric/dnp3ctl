@@ -338,6 +338,56 @@ func TestServer(t *testing.T) {
 		(<-done).want(t, 0)
 	})
 
+	t.Run("several outstations behind one port", func(t *testing.T) {
+		first, second := filepath.Join(dir, "rtu10.yaml"), filepath.Join(dir, "rtu11.yaml")
+		_ = os.WriteFile(first, []byte(stationtest.Model), 0o600)
+		_ = os.WriteFile(second, []byte("outstation: {name: Second, address: 11}\npoints: [{type: binary-input, index: 0, value: false}, {type: counter, index: 0, value: 5}]\n"), 0o600)
+		for _, transport := range []string{"tcp", "udp"} {
+			t.Run(transport, func(t *testing.T) {
+				port := strconv.Itoa(int(stationtest.FreePort(t)))
+				args := []string{"server", "start", "--config", first, "--config", second, "--listen", "127.0.0.1", "--port", port, "--format", "json"}
+				target := []string{"--ip", "127.0.0.1", "--port", port}
+				if transport == "udp" {
+					args = append(args, "--udp")
+					target = []string{"--url", "udp://127.0.0.1:" + port}
+				}
+				ctx, stop := context.WithCancel(context.Background())
+				done := make(chan result, 1)
+				go func() { done <- runCtx(t, ctx, args...) }()
+				eventually(t, "the server to answer", func() bool {
+					return run(t, append([]string{"client", "ping", "--count", "1", "--timeout", "300"}, target...)...).code == 0
+				})
+				// Each outstation answers at its own link address, with its own points.
+				var a, b types.PollResult
+				run(t, append([]string{"client", "poll", "--outstation", "10", "--format", "json"}, target...)...).want(t, 0).decode(t, &a)
+				run(t, append([]string{"client", "poll", "--outstation", "11", "--format", "json"}, target...)...).want(t, 0).decode(t, &b)
+				if a.Count != 12 || b.Count != 2 || b.Outstation != 11 {
+					t.Errorf("outstation 10: %d values, outstation 11: %d values", a.Count, b.Count)
+				}
+				run(t, append([]string{"client", "poll", "--outstation", "12", "--timeout", "1000", "--response-timeout", "300"}, target...)...).want(t, 5)
+				// A broadcast reaches both.
+				run(t, append([]string{"client", "freeze", "--broadcast", "no-confirm", "--no-ack"}, target...)...).want(t, 0)
+				stop()
+				r := (<-done).want(t, 0)
+				frozen := map[float64]bool{}
+				for _, e := range r.lines(t) {
+					if e["event"] == "listening" && !strings.Contains(e["detail"].(string), "Test outstation, link address 10; Second, link address 11") {
+						t.Errorf("listening: %v", e)
+					}
+					if e["event"] == "request" && e["function"] == "IMMED_FREEZE_NR" {
+						frozen[e["outstation"].(float64)] = true
+					}
+				}
+				if !frozen[10] || !frozen[11] {
+					t.Errorf("the broadcast freeze reached %v:\n%s", frozen, r.stdout)
+				}
+			})
+		}
+		run(t, "server", "start", "--config", first+", ,"+first).want(t, 3).errHas(t, "both have link address 10")
+		run(t, "server", "start", "--config", first, "--config", second, "--dial", "tcp://127.0.0.1:1").want(t, 3).errHas(t, "serve one outstation")
+		run(t, "server", "start", "--config", first, "--config", filepath.Join(dir, "missing.yaml")).want(t, 3)
+	})
+
 	t.Run("TLS and allow-list", func(t *testing.T) {
 		certs := stationtest.NewCerts(t)
 		port := strconv.Itoa(int(stationtest.FreePort(t)))

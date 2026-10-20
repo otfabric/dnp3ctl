@@ -67,6 +67,7 @@ func TestRendering(t *testing.T) {
 		{&ServerEvent{Timestamp: "T", Event: "control", Remote: "r", Function: "OPERATE", Object: "g12v1", Index: ptr(uint32(0)), Value: true, Status: "SUCCESS", Detail: "d"},
 			[]string{"control", "OPERATE", "g12v1 index=0", "on", "SUCCESS", "d"}},
 		{&ServerEvent{Timestamp: "T", Event: "listening"}, []string{"listening"}},
+		{&ServerEvent{Timestamp: "T", Event: "control", Outstation: ptr(uint16(11))}, []string{"control           [11]"}},
 	} {
 		text, err := c.v.MarshalTextOutput()
 		if err != nil {

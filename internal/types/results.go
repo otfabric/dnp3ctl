@@ -657,8 +657,11 @@ type ServerEvent struct {
 	// Event is "listening", "connected", "disconnected", "refused", "request", "control",
 	// "manage", "unsolicited", "time-sync", "restart", "write", "file", "events-discarded",
 	// "stopping" or "error".
-	Event  string `json:"event"`
-	Remote string `json:"remote,omitempty"`
+	Event string `json:"event"`
+	// Outstation is the link address of the outstation an event is about, when several
+	// outstations share the connections.
+	Outstation *uint16 `json:"outstation,omitempty"`
+	Remote     string  `json:"remote,omitempty"`
 	// Function is the function code of a request ("READ", "SELECT", "OPERATE", ...).
 	Function string `json:"function,omitempty"`
 	// Object and Index name the point an event is about.
@@ -674,6 +677,9 @@ type ServerEvent struct {
 func (e *ServerEvent) MarshalTextOutput() (string, error) {
 	var b strings.Builder
 	_, _ = fmt.Fprintf(&b, "%s  %-16s", e.Timestamp, e.Event)
+	if e.Outstation != nil {
+		_, _ = fmt.Fprintf(&b, "  [%d]", *e.Outstation)
+	}
 	if e.Remote != "" {
 		_, _ = fmt.Fprintf(&b, "  %s", e.Remote)
 	}
@@ -700,19 +706,22 @@ func (e *ServerEvent) MarshalTextOutput() (string, error) {
 
 // TableHeaders implements format.TableMarshaler.
 func (e *ServerEvent) TableHeaders() []string {
-	return []string{"TIMESTAMP", "EVENT", "REMOTE", "FUNCTION", "OBJECT", "INDEX", "VALUE", "STATUS", "DETAIL"}
+	return []string{"TIMESTAMP", "EVENT", "OUTSTATION", "REMOTE", "FUNCTION", "OBJECT", "INDEX", "VALUE", "STATUS", "DETAIL"}
 }
 
 // TableRows implements format.TableMarshaler.
 func (e *ServerEvent) TableRows() [][]string {
-	index, value := "", ""
+	outstation, index, value := "", "", ""
+	if e.Outstation != nil {
+		outstation = strconv.Itoa(int(*e.Outstation))
+	}
 	if e.Index != nil {
 		index = strconv.FormatUint(uint64(*e.Index), 10)
 	}
 	if e.Value != nil {
 		value = valueText(e.Value)
 	}
-	return [][]string{{e.Timestamp, e.Event, e.Remote, e.Function, e.Object, index, value, e.Status, e.Detail}}
+	return [][]string{{e.Timestamp, e.Event, outstation, e.Remote, e.Function, e.Object, index, value, e.Status, e.Detail}}
 }
 
 func valueText(v any) string {

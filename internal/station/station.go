@@ -41,6 +41,9 @@ type Options struct {
 	Metrics dnp3.Metrics
 	// Now is the clock of time stamps; nil is time.Now.
 	Now func() time.Time
+	// Tag names the outstation in its events: set when several outstations share the
+	// connections.
+	Tag bool
 	// Logger receives go-dnp3's own log entries (the --debug log); nil is silent.
 	Logger dnp3.Logger
 	// AuthReplyTimeout, StatisticsClass and StatisticsThreshold tune Secure Authentication;
@@ -328,9 +331,17 @@ func (st *Station) Close() error {
 	return st.srv.Close()
 }
 
-func (st *Station) event(e types.ServerEvent) {
+func (st *Station) event(e types.ServerEvent) { st.emit(e, true) }
+
+// emit logs an event, naming the outstation when it is about this one and the station
+// shares its connections with others (Options.Tag).
+func (st *Station) emit(e types.ServerEvent, own bool) {
 	if st.opts.Log == nil {
 		return
+	}
+	if own && st.opts.Tag {
+		addr := st.model.Address()
+		e.Outstation = &addr
 	}
 	e.Timestamp = st.opts.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
 	st.mu.Lock()

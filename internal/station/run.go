@@ -84,27 +84,47 @@ func parseAllow(list []string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-// LoadModel returns the model of cfg: the file --config names, or the built-in demo.
-func LoadModel(cfg *config.ServerConfig) (*Model, error) {
-	if cfg.Config == "" {
-		return Demo(), nil
+// LoadModels returns the models of cfg: the files --config names, or the built-in demo. The
+// outstations of several models must have distinct link addresses.
+func LoadModels(cfg *config.ServerConfig) ([]*Model, error) {
+	var models []*Model
+	addresses := map[uint16]string{}
+	for _, file := range cfg.Config {
+		if strings.TrimSpace(file) == "" {
+			continue
+		}
+		m, err := Load(file)
+		if err != nil {
+			return nil, err
+		}
+		if other, ok := addresses[m.Address()]; ok {
+			return nil, fmt.Errorf("%s and %s both have link address %d: the outstations of one server need distinct addresses", other, file, m.Address())
+		}
+		addresses[m.Address()] = file
+		models = append(models, m)
 	}
-	return Load(cfg.Config)
+	if len(models) == 0 {
+		models = []*Model{Demo()}
+	}
+	return models, nil
 }
 
 // plan is a validated configuration of `server start`.
 type plan struct {
-	model *Model
-	opts  Options
-	allow []netip.Prefix
-	peer  net.Addr       // the master of --udp-peer, or nil
-	dial  *config.Target // the master of --dial, or nil
+	models []*Model
+	opts   Options
+	allow  []netip.Prefix
+	peer   net.Addr       // the master of --udp-peer, or nil
+	dial   *config.Target // the master of --dial, or nil
 }
 
 func check(cfg *config.ServerConfig) (*plan, error) {
-	m, err := LoadModel(cfg)
+	models, err := LoadModels(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if len(models) > 1 && (cfg.Dial != "" || cfg.UDPPeer != "") {
+		return nil, fmt.Errorf("--dial and --udp-peer serve one outstation: give one --config")
 	}
 	var (
 		tc   *tls.Config
@@ -153,7 +173,7 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 		return nil, fmt.Errorf("invalid --sa-statistics-class %d: use 1-3", cfg.SAStatisticsClass)
 	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
-	return &plan{model: m, allow: allow, peer: peer, dial: dial, opts: Options{
+	return &plan{models: models, allow: allow, peer: peer, dial: dial, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
 		AuthReplyTimeout: time.Duration(cfg.SAReplyTimeout) * time.Millisecond, StatisticsClass: cfg.SAStatisticsClass, StatisticsThreshold: cfg.SAStatisticsEvery,
 	}}, nil
@@ -218,17 +238,13 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 	if cfg.Debug && trace != nil {
 		p.opts.Metrics, p.opts.Logger = &dnp.Tracer{W: trace}, dnp.DebugLogger(trace)
 	}
-	st, err := New(p.model, p.opts)
+	f, err := NewFleet(p.models, p.opts)
 	if err != nil {
 		return errs.InvalidInput(errs.CodeInvalidConfig, err.Error(), err)
 	}
-	defer func() { _ = st.Close() }()
+	defer func() { _ = f.Close() }()
 
-	name := p.model.Outstation.Name
-	if name == "" {
-		name = "outstation"
-	}
-	detail := fmt.Sprintf("%s, link address %d", name, p.model.Address())
+	detail := f.Describe()
 	served := make(chan error, 1)
 	var addr net.Addr
 	switch {
@@ -239,11 +255,12 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 			return errs.New(errs.KindTransport, errs.CodeListenFailed, fmt.Sprintf("cannot open %s: %v", cfg.Serial, err), err)
 		}
 		addr = remote
-		st.event(types.ServerEvent{Event: "listening", Remote: "serial://" + cfg.Serial, Detail: detail})
-		go func() { served <- st.ServeConn(port, remote) }()
+		f.event(types.ServerEvent{Event: "listening", Remote: "serial://" + cfg.Serial, Detail: detail})
+		go func() { served <- f.ServeConn(port, remote) }()
 	case p.dial != nil:
-		st.event(types.ServerEvent{Event: "dialing", Remote: p.dial.String(), Detail: detail})
+		f.event(types.ServerEvent{Event: "dialing", Remote: p.dial.String(), Detail: detail})
 		// Only Close ends DialAndServe, so that it returns nil when the server stops.
+		st := f.Stations()[0]
 		go func() { served <- st.DialAndServe(context.WithoutCancel(ctx), p.dial.Addr()) }()
 	case cfg.UDP:
 		pc, err := net.ListenPacket("udp", listenAddr(cfg, false))
@@ -251,11 +268,12 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 			return errs.New(errs.KindTransport, errs.CodeListenFailed, fmt.Sprintf("cannot listen: %v", err), err)
 		}
 		addr = pc.LocalAddr()
-		st.event(types.ServerEvent{Event: "listening", Remote: "udp://" + addr.String(), Detail: detail})
+		f.event(types.ServerEvent{Event: "listening", Remote: "udp://" + addr.String(), Detail: detail})
 		if p.peer != nil {
+			st := f.Stations()[0]
 			go func() { served <- st.ServeUDPTo(pc, p.peer) }()
 		} else {
-			go func() { served <- st.ServeUDP(pc) }()
+			go func() { served <- f.ServeUDP(pc) }()
 		}
 	default:
 		ln, err := net.Listen("tcp", listenAddr(cfg, p.opts.TLS != nil))
@@ -268,10 +286,10 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 			ln, scheme = tls.NewListener(ln, p.opts.TLS), "tls://"
 		}
 		if len(p.allow) > 0 {
-			ln = &allowListener{Listener: ln, allow: p.allow, log: st.event}
+			ln = &allowListener{Listener: ln, allow: p.allow, log: f.event}
 		}
-		st.event(types.ServerEvent{Event: "listening", Remote: scheme + addr.String(), Detail: detail})
-		go func() { served <- st.Serve(ln) }()
+		f.event(types.ServerEvent{Event: "listening", Remote: scheme + addr.String(), Detail: detail})
+		go func() { served <- f.Serve(ln) }()
 	}
 	if ready != nil {
 		ready(addr)
@@ -289,16 +307,6 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 		return nil
 	case <-ctx.Done():
 	}
-	st.shutdown(served)
+	f.shutdown(served)
 	return nil
-}
-
-// shutdown closes the station and waits for the result of its Serve. Serve returns nil after
-// Close; anything else went wrong while stopping and is logged.
-func (st *Station) shutdown(served <-chan error) {
-	st.event(types.ServerEvent{Event: "stopping"})
-	_ = st.Close()
-	if err := <-served; err != nil {
-		st.event(types.ServerEvent{Event: "error", Detail: fmt.Sprintf("stopping: %v", err)})
-	}
 }
