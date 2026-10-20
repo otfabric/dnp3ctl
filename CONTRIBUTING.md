@@ -26,7 +26,7 @@ Thank you for your interest in contributing to `dnp3ctl`! This document covers t
 ### Build & Test
 
 ```sh
-# Run all checks (format, lint, vet, vulnerability scan, race tests, coverage gate)
+# Run all checks (format, lint, vet, 32-bit typecheck, vulnerability scan, race tests, coverage gate)
 make check
 
 # Run tests with the race detector

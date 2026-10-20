@@ -1024,8 +1024,9 @@ A toplevel `Makefile` is provided for convenience. Run **`make`** (or **`make he
 | **`make lint`** | `compile` then **staticcheck** |
 | **`make lint-ci`** | `compile`, **go vet**, **golangci-lint** (uses `.golangci.yml`) |
 | **`make vuln`** | **govulncheck** over the module and its dependencies |
+| **`make cross`** | Typecheck for 32-bit targets (linux/arm/v7 is a release target, where `int` has 32 bits) |
 | **`make fmt`** / **`fmt-check`** | Format with the gofmt of the Go version in `go.mod` (the one CI uses); `fmt-check` fails if that gofmt or the locally installed one would change any file |
-| **`make check`** | `fmt`, `fmt-check`, `lint`, `lint-ci`, `vet`, `vuln`, `test`, **`coverage`** |
+| **`make check`** | `fmt`, `fmt-check`, `lint`, `lint-ci`, `vet`, `cross`, `vuln`, `test`, **`coverage`** |
 | **`make build`** | Runs **`check`** then writes **`bin/dnp3ctl`** |
 | **`make build-all`** / **`release-all`** | Cross-compile and package archives |
 
