@@ -351,9 +351,25 @@ func TestServer(t *testing.T) {
 					args = append(args, "--udp")
 					target = []string{"--url", "udp://127.0.0.1:" + port}
 				}
-				ctx, stop := context.WithCancel(context.Background())
+				// The event log is read while the server runs: a broadcast is not answered, so the
+				// test waits for both outstations to log it before stopping the server.
+				var stdout, stderr syncBuffer
+				ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+				defer stop()
 				done := make(chan result, 1)
-				go func() { done <- runCtx(t, ctx, args...) }()
+				go func() {
+					code := Run(ctx, args, &stdout, &stderr)
+					done <- result{stdout.String(), stderr.String(), code}
+				}()
+				frozen := func() map[float64]bool {
+					seen := map[float64]bool{}
+					for _, e := range (result{stdout: stdout.String()}).lines(t) {
+						if e["event"] == "request" && e["function"] == "IMMED_FREEZE_NR" {
+							seen[e["outstation"].(float64)] = true
+						}
+					}
+					return seen
+				}
 				eventually(t, "the server to answer", func() bool {
 					return run(t, append([]string{"client", "ping", "--count", "1", "--timeout", "300"}, target...)...).code == 0
 				})
@@ -367,19 +383,16 @@ func TestServer(t *testing.T) {
 				run(t, append([]string{"client", "poll", "--outstation", "12", "--timeout", "1000", "--response-timeout", "300"}, target...)...).want(t, 5)
 				// A broadcast reaches both.
 				run(t, append([]string{"client", "freeze", "--broadcast", "no-confirm", "--no-ack"}, target...)...).want(t, 0)
+				eventually(t, "both outstations to log the broadcast freeze", func() bool {
+					seen := frozen()
+					return seen[10] && seen[11]
+				})
 				stop()
 				r := (<-done).want(t, 0)
-				frozen := map[float64]bool{}
 				for _, e := range r.lines(t) {
 					if e["event"] == "listening" && !strings.Contains(e["detail"].(string), "Test outstation, link address 10; Second, link address 11") {
 						t.Errorf("listening: %v", e)
 					}
-					if e["event"] == "request" && e["function"] == "IMMED_FREEZE_NR" {
-						frozen[e["outstation"].(float64)] = true
-					}
-				}
-				if !frozen[10] || !frozen[11] {
-					t.Errorf("the broadcast freeze reached %v:\n%s", frozen, r.stdout)
 				}
 			})
 		}
