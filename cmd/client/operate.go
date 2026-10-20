@@ -41,7 +41,10 @@ repeated, also not with --retries and also not when its response does not arrive
 
 --broadcast sends the control to every outstation on the channel at once, at one of the
 broadcast addresses, with --mode direct or direct-no-ack. Nobody answers it, so no status
-is reported: each outstation sets IIN1.0 BROADCAST in its next response.
+is reported: each outstation sets IIN1.0 BROADCAST in its next response. A broadcast cannot
+be combined with secure authentication: an outstation running SAv5 executes a broadcast
+control only with an aggressive mode MAC over an earlier challenge of the same connection,
+and every dnp3ctl command opens a new connection.
 
 A control the outstation refuses (a status other than SUCCESS, such as NO_SELECT, LOCAL or
 NOT_SUPPORTED) ends with exit code 6; a missing response with 5, after which the control

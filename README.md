@@ -616,6 +616,8 @@ dnp3ctl client operate --url serial:///dev/ttyUSB0 --type crob --index 3 --op tr
 
 `--broadcast` sends the request to every outstation on the channel at one of the three broadcast addresses (`no-confirm`, `confirm` or `optional`: whether the outstations ask for an application confirmation). Nobody answers a broadcast, so the result reports the request as sent; each outstation executes it and sets IIN1.0 BROADCAST in its next response, which a poll shows. Controls need `--mode direct` or `direct-no-ack`: select-before-operate needs an answer.
 
+A broadcast cannot be combined with Secure Authentication, and dnp3ctl refuses the combination (exit code 3). An outstation running SAv5 discards a critical request sent to a broadcast address (a control, a freeze) unless it carries an aggressive mode MAC. That MAC covers an earlier challenge of the same connection, and every dnp3ctl command opens a connection of its own, so its broadcast would be discarded without a word.
+
 #### Device attributes and delay
 
 ```console

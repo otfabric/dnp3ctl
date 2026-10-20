@@ -194,7 +194,7 @@ A written file appears in its directory and can be read back.
 | ASSIGN_CLASS | changes the event class of the points |
 | READ of g34 | the deadbands of the analog inputs (their `deadband`) |
 | FREEZE_AT_TIME | a freeze at a time to come, repeated at the interval when one is given; time 0 freezes at once. Up to 16 wait at once; a time that has passed, without an interval, is refused |
-| A broadcast (to 0xFFFD, 0xFFFE or 0xFFFF) | executed like the same request to the outstation, not answered; IIN1.0 BROADCAST is set in the next response |
+| A broadcast (to 0xFFFD, 0xFFFE or 0xFFFF) | executed like the same request to the outstation, not answered; IIN1.0 BROADCAST is set in the next response. With secure authentication a critical broadcast is executed only in aggressive mode with a valid MAC, otherwise discarded |
 | IMMED_FREEZE, FREEZE_CLEAR (and their `_NR` forms) | copies counters into frozen counters and analog inputs into frozen analog inputs; FREEZE_CLEAR resets the counters |
 | READ / WRITE g0 | the attributes of `outstation.attributes` and of `attribute_sets`, and their lists (g0v255); writes as described under `attributes` and `attribute_sets` |
 | File transfer (g70) | serves `files`, lists directories, takes uploads |

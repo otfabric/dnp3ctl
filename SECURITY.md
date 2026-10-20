@@ -74,7 +74,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 - **`client time-sync`** changes the outstation's clock, and with it the time stamps of its events
 - **`client restart`** restarts the outstation or its DNP3 application; `--type` has no default
 - **`client freeze`** overwrites frozen values, and with `--clear` resets counters. Energy counters that are reset are gone. With `--at` and `--interval` the outstation keeps freezing on its own, at every interval
-- **`--broadcast`** (`client operate`, `client freeze`) reaches **every** outstation on the channel at once, also ones you did not mean, and nobody answers: there is no status to tell whether, or where, it was executed. Use it only on a channel whose outstations you know
+- **`--broadcast`** (`client operate`, `client freeze`) reaches **every** outstation on the channel at once, also ones you did not mean, and nobody answers: there is no status to tell whether, or where, it was executed. Use it only on a channel whose outstations you know. It cannot be combined with Secure Authentication: outstations running SAv5 discard a critical broadcast that has no aggressive mode MAC over an earlier challenge of the connection, which a dnp3ctl command, opening a new connection, cannot have; dnp3ctl refuses the combination
 - **`client write-attribute`** changes the outstation's device attributes, which other systems may use to identify it
 - **`client assign-class`** changes which events the outstation reports, to every master
 - **`client unsolicited`** changes what the outstation reports by itself to this master

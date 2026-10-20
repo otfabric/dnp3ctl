@@ -729,6 +729,12 @@ func TestBroadcastAndFreezeAtTime(t *testing.T) {
 			want(t, 0).has(t, "every outstation (broadcast, confirm)", "not-reported")
 		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--broadcast", "optional").want(t, 3).errHas(t, "--mode direct")
 		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--broadcast", "everyone").want(t, 3)
+		// With secure authentication a broadcast cannot be authenticated: it is refused
+		// before anything is sent.
+		t.Setenv("DNP3CTL_SA_UPDATE_KEY", strings.Repeat("ab", 16))
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--broadcast", "no-confirm").want(t, 3).errHas(t, "cannot be used with secure authentication")
+		cli(t, st, "freeze", "--broadcast", "no-confirm").want(t, 3).errHas(t, "cannot be used with secure authentication")
+		t.Setenv("DNP3CTL_SA_UPDATE_KEY", "")
 	})
 	t.Run("broadcast freeze", func(t *testing.T) {
 		var res types.ConfirmedResult

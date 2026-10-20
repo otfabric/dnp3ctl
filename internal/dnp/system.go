@@ -240,7 +240,7 @@ func planFreeze(cfg *config.FreezeConfig) (freezePlan, error) {
 		return freezePlan{}, err
 	}
 	p := freezePlan{gvs: gvs, sel: sel}
-	if _, p.broadcast, err = parseBroadcast(cfg.Broadcast); err != nil {
+	if _, p.broadcast, err = checkBroadcast(cfg.Broadcast, &cfg.ConnConfig); err != nil {
 		return p, err
 	}
 	at, every := strings.TrimSpace(cfg.At), strings.TrimSpace(cfg.Interval)

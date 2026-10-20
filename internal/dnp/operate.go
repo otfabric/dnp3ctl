@@ -90,7 +90,7 @@ func operatePlan(cfg *config.OperateConfig) (client.Command, client.CommandMode,
 	if err != nil {
 		return client.Command{}, 0, nil, err
 	}
-	_, broadcast, err := parseBroadcast(cfg.Broadcast)
+	_, broadcast, err := checkBroadcast(cfg.Broadcast, &cfg.ConnConfig)
 	if err != nil {
 		return client.Command{}, 0, nil, err
 	}

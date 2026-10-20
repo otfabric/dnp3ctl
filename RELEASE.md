@@ -11,7 +11,7 @@ dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.1.0 added
 
 ### Highlights
 
-- **`--broadcast no-confirm|confirm|optional`** on `client operate` (with `--mode direct` or `direct-no-ack`) and `client freeze`: the request goes to every outstation on the channel at a broadcast address. Nobody answers; each outstation sets IIN1.0 BROADCAST in its next response.
+- **`--broadcast no-confirm|confirm|optional`** on `client operate` (with `--mode direct` or `direct-no-ack`) and `client freeze`: the request goes to every outstation on the channel at a broadcast address. Nobody answers; each outstation sets IIN1.0 BROADCAST in its next response. Refused with secure authentication: outstations running SAv5 accept a critical broadcast only with an aggressive mode MAC over an earlier challenge of the same connection, which a dnp3ctl command cannot have.
 - **`client freeze --at TIME [--interval DURATION]`:** FREEZE_AT_TIME, a freeze at a time to come, repeated at the interval.
 - **Device attribute sets:** `client attributes --set N` reads a set other than the standard set 0.
 - **`client write-attribute`** (new): writes a device attribute of any set, with `--value` of `--data-type vstr|uint|int|float`.

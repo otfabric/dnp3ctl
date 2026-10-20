@@ -33,4 +33,4 @@
 
 **`--debug`:** adds the frame trace and, after a fatal error, the chain of causes (`cause: …` lines) on stderr. It does not change stdout or the exit code.
 
-**Broadcasts:** `client operate --broadcast` and `client freeze --broadcast` exit `0` once the request is sent: nobody answers a broadcast, so neither a refusal nor a missing answer can be reported. Each outstation sets IIN1.0 BROADCAST in its next response; poll to see it.
+**Broadcasts:** `client operate --broadcast` and `client freeze --broadcast` exit `0` once the request is sent: nobody answers a broadcast, so neither a refusal nor a missing answer can be reported. Each outstation sets IIN1.0 BROADCAST in its next response; poll to see it. `--broadcast` with secure authentication configured exits `3`: it could not be authenticated.

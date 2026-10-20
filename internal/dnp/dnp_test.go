@@ -433,6 +433,20 @@ func TestListenOptions(t *testing.T) {
 	_ = l.Close()
 }
 
+func TestBroadcastWithSecureAuthentication(t *testing.T) {
+	for _, a := range []config.AuthConfig{{SAKeyFile: "k"}, {SAUpdateKeyFile: "k"}, {SAKey: "00"}, {SAUpdateKey: "00"}} {
+		if _, _, err := checkBroadcast("confirm", &config.ConnConfig{AuthConfig: a}); err == nil {
+			t.Errorf("a broadcast with %+v was accepted", a)
+		}
+	}
+	if _, name, err := checkBroadcast("confirm", &config.ConnConfig{}); err != nil || name != "confirm" {
+		t.Errorf("a broadcast without secure authentication: %q, %v", name, err)
+	}
+	if _, name, err := checkBroadcast("", &config.ConnConfig{AuthConfig: config.AuthConfig{SAKey: "00"}}); err != nil || name != "" {
+		t.Errorf("no broadcast with secure authentication: %q, %v", name, err)
+	}
+}
+
 func TestFreezeFunctionsAndPlans(t *testing.T) {
 	for _, c := range []struct {
 		clear, noAck bool

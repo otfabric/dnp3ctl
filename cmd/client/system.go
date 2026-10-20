@@ -168,7 +168,8 @@ scheduled freezes, and refuses a time that has passed when there is no interval.
 
 --broadcast sends the freeze to every outstation on the channel at once, for example to
 freeze all the meters of a feeder at the same moment. Nobody answers a broadcast: each
-outstation sets IIN1.0 BROADCAST in its next response.
+outstation sets IIN1.0 BROADCAST in its next response. A broadcast cannot be combined
+with secure authentication (see "client operate --help").
 
 THIS CHANGES THE OUTSTATION: frozen values are overwritten, and with --clear the counters
 start again from zero. The request is sent once.`,
