@@ -1,10 +1,30 @@
 # dnp3ctl Releases
 
-## Unreleased
+## v0.2.0
 
-- **`--udp-local-port`:** with `udp://` URLs, send from a fixed local port, for outstations that answer only a configured master endpoint.
-- **`server start --udp`:** the event log names the master the outstation answers as `remote`, not the outstation's own socket.
-- **Docs:** the UDP behaviour of the simulated outstation, and how Secure Authentication has been verified.
+**Date:** 2026-10-20  
+**Previous release:** v0.1.0
+
+### Summary
+
+UDP improvements found while testing against other DNP3 stacks, and corrected security documentation. Built on [go-dnp3](https://github.com/otfabric/go-dnp3) v0.1.1.
+
+### Highlights
+
+- **`--udp-local-port`** (`DNP3CTL_UDP_LOCAL_PORT`): with `udp://` URLs, send from a fixed local port, for outstations that answer only a configured master endpoint (opendnp3, for example).
+- **`server start --udp`:** the event log now names the master the outstation answers as `remote`; it showed the outstation's own socket.
+- **`server start`:** an error the transport reports while the server stops is logged as an `error` event instead of being dropped.
+
+### Documentation
+
+- **SECURITY.md:** the security contact is security@otfabric.io (it said otfabric.com). It now also explains how Secure Authentication has been verified.
+- **docs/server-config.md, README.md:** how the simulated outstation behaves over UDP: it answers whoever sent the last datagram, serves one master at a time, and sends unsolicited responses only after a master's first request.
+
+### Quality
+
+- Whole-module statement coverage of **94.6%**; the changes of this release are covered completely.
+- Every `nolint` comment is gone: the code passes golangci-lint and staticcheck as configured.
+- Fixed two races in the tests that made the coverage job fail on main.
 
 ---
 
