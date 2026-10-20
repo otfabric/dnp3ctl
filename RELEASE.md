@@ -1,5 +1,24 @@
 # dnp3ctl Releases
 
+## v0.3.2
+
+**Date:** 2026-10-20  
+**Previous release:** v0.3.1
+
+### Summary
+
+dnp3ctl now builds on [go-dnp3](https://github.com/otfabric/go-dnp3) v1.0.0, its first production release, whose API follows semantic versioning from here on. No change to commands, flags or output.
+
+### Changed
+
+- **go-dnp3 v1.0.0.** Of its behaviour changes, none affects dnp3ctl: a client whose startup sequence fails is now closed by go-dnp3 as well, which dnp3ctl already did; the new point types (security statistics, command events, time and interval) are not served by the simulated outstation's model; aggressive mode is not used.
+
+### Upgrade notes
+
+- No breaking changes.
+
+---
+
 ## v0.3.1
 
 **Date:** 2026-10-20  
