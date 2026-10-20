@@ -56,11 +56,13 @@ type ConnConfig struct {
 	AddressConfig
 	URL             string `env:"DNP3CTL_URL" desc:"Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port" flag:"url"`
 	IP              string `env:"DNP3CTL_IP" desc:"Outstation IP address or host name, over TCP (used when --url is not set)" flag:"ip"`
-	Port            uint16 `env:"DNP3CTL_PORT" desc:"Outstation TCP port (used when --url is not set)" flag:"port"`
+	Port            uint16 `env:"DNP3CTL_PORT" desc:"Outstation TCP port (used when --url is not set), or the port of --listen" flag:"port"`
+	Listen          string `env:"DNP3CTL_MASTER_LISTEN" desc:"Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip" flag:"listen"`
 	UDPLocalPort    uint16 `env:"DNP3CTL_UDP_LOCAL_PORT" desc:"With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port" flag:"udp-local-port"`
 	Timeout         uint32 `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds for connecting and for each request, retries included (0 = 10000)" flag:"timeout"`
 	ResponseTimeout uint32 `env:"DNP3CTL_RESPONSE_TIMEOUT" desc:"Wait in milliseconds for each fragment of a response (0 = 5000)" flag:"response-timeout"`
 	SAKeyChange     uint32 `env:"DNP3CTL_SA_KEY_CHANGE_INTERVAL" desc:"Seconds between session key changes while connected, with an update key (0 = 900)" flag:"sa-key-change-interval"`
+	SAAggressive    bool   `env:"DNP3CTL_SA_AGGRESSIVE" desc:"Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key" flag:"sa-aggressive"`
 	Retries         uint8  `env:"DNP3CTL_RETRIES" desc:"Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes" flag:"retries"`
 	Debug           bool   // set from global --debug (root persistent flag)
 }
@@ -250,10 +252,12 @@ type ServerConfig struct {
 	Listen       string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
 	Port         uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
 	UDP          bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
+	Dial         string   `env:"DNP3CTL_DIAL" desc:"Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends" flag:"dial"`
 	UDPPeer      string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
 	Serial       string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
-	Cert         string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server" flag:"tls-cert"`
+	Cert         string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master)" flag:"tls-cert"`
 	Key          string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
+	CACert       string   `env:"DNP3CTL_TLS_CA" desc:"With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots)" flag:"tls-ca"`
 	ClientCA     string   `env:"DNP3CTL_TLS_CLIENT_CA" desc:"PEM file with the CA certificates masters must present a certificate of (mutual TLS)" flag:"tls-client-ca"`
 	Allow        []string `env:"DNP3CTL_ALLOW" desc:"Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any)" flag:"allow"`
 	MaxSessions  uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`

@@ -59,6 +59,9 @@ internal indications, the values are listed and the exit code is 7.`,
 
   # Over a serial line
   dnp3ctl client poll --url serial:///dev/ttyUSB0 --baud 19200 --outstation 4
+
+  # An outstation that connects to the master: wait for it on port 20000
+  dnp3ctl client poll --listen :20000
 `,
 	}
 	cfg := config.PollConfig{ConnConfig: connDefaults(), Mode: dnp.PollIntegrity, OutputFormat: text}
@@ -103,6 +106,10 @@ buffer, as a poll does. "dnp3ctl client objects" lists the objects dnp3ctl knows
 
   # The internal indications (g80v1)
   dnp3ctl client read --ip 192.168.1.20 --object g80v1
+
+  # Times and intervals (g50v4), and the security statistics of Secure Authentication
+  dnp3ctl client read --ip 192.168.1.20 --object g50v4
+  dnp3ctl client read --ip 192.168.1.20 --object g121v1
 `,
 	}
 	cfg := config.ReadConfig{ConnConfig: connDefaults(), OutputFormat: text}

@@ -79,6 +79,9 @@ Durations are strings such as `500ms`, `5s` or `1h`.
 | `event_variation` | The variation of its events. Default as below |
 | `deadband` | Counters and analog points: a change of the value is an event only when it exceeds the deadband. A change of the flags always is |
 | `exclude_from_class0` | Leave the point out of class 0 responses; it can still be read by object |
+| `command_event_class` | `binary-output` and `analog-output` only: report every executed control of this output's index (OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR) as a command event of this class 1-3, with the commanded state or value and the status it was answered with. Default 0: none |
+| `command_event_variation` | The variation of the command events: g13v1 or g13v2 for a binary output, g43v1 … g43v8 for an analog output. Default g13v2 or g43v3 (with time) |
+| `interval`, `interval_unit` | `time-and-interval` only: the interval, a count of the unit; the unit is `none` (default), `milliseconds`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `months-day`, `months-last` or `months-same` (IEEE 1815-2012 Table 11-23) |
 | `simulate` | Makes the value change by itself; see below |
 
 | `type` | Objects | Value | Default variations (static, event) |
@@ -92,6 +95,9 @@ Durations are strings such as `500ms`, `5s` or `1h`.
 | `frozen-analog-input` | g31, g33 | number; a freeze copies the analog input of the same index | g31v1, g33v3 |
 | `analog-output` | g40, g42 | number | g40v1, g42v3 |
 | `octet-string` | g110, g111 | text of 1-255 octets | g110 with the length as variation |
+| `time-and-interval` | g50v4 | an RFC 3339 time (`2026-01-04T02:00:00Z`), with `interval` and `interval_unit` | g50v4; no events |
+
+A `time-and-interval` is a time with a repeat interval, such as a schedule. Like in the reference outstations it has no class and no events and is not part of class 0: masters read it by object (`client read --object g50v4`). `class`, `event_variation`, `deadband` and `simulate` do not apply to it.
 
 A value is encoded in the variation a master asks for: an integer variation rounds it, and a value the variation cannot hold is sent as the nearest one with `OVER_RANGE` set.
 
@@ -132,6 +138,7 @@ How the outstation handles a control:
 - **OPERATE**, **DIRECT_OPERATE**: executed and answered with the status. A crob with `LATCH_ON`, `PULSE_ON` or trip-close code `CLOSE` sets its target on, `LATCH_OFF`, `PULSE_OFF` or `TRIP` off; `NUL` changes nothing. An analog control sets its target to the value. The change of the target produces an event like any other change.
 - **DIRECT_OPERATE_NR**: executed, not answered.
 - An index without a control is answered with NOT_SUPPORTED; a pattern control block (g12v2) as well.
+- **Command events**: when the output of the control's index has a `command_event_class`, every OPERATE, DIRECT_OPERATE and DIRECT_OPERATE_NR is reported as a command event (g13 or g43) with the commanded state or value and the status it was answered with, also when the model refuses it.
 
 ## `files`
 
@@ -171,4 +178,6 @@ A written file appears in its directory and can be read back.
 | File transfer (g70) | serves `files`, lists directories, takes uploads |
 | Anything else | IIN2.0 (NO_FUNC_CODE_SUPPORT) |
 
-The outstation serves any number of masters (16 connections by default, `--max-sessions`), each with its own association and event buffer. Over UDP (`--udp`) there are no connections: the outstation answers the endpoint the last datagram came from, which the event log shows as `remote`, so one master is served at a time, and unsolicited responses start once a master has sent a request, unless `--udp-peer` names the master. With `--sa-update-key-file` (session key change) or `--sa-key-file` (a pre-shared session key), or their environment variables, critical requests (controls, writes, restarts, freezes, assign class, opening and deleting files, among others) are challenged by Secure Authentication v5 and executed only when the master answers with the right MAC.
+The outstation serves any number of masters (16 connections by default, `--max-sessions`), each with its own association and event buffer. Over UDP (`--udp`) there are no connections: the outstation answers the endpoint the last datagram came from, which the event log shows as `remote`, so one master is served at a time, and unsolicited responses start once a master has sent a request, unless `--udp-peer` names the master. With `--sa-update-key-file` (session key change) or `--sa-key-file` (a pre-shared session key), or their environment variables, critical requests (controls, writes, restarts, freezes, assign class, opening and deleting files, among others) are challenged by Secure Authentication v5 and executed only when the master answers with the right MAC, or when they carry it themselves in aggressive mode. The outstation then keeps the security statistics of each master (g121v1, read with `client read --object g121v1`) and reports a g122 event in class 1 every 10 increments of a statistic.
+
+With `--dial tcp://host[:port]` or `--dial tls://host[:port]` the outstation does not listen: it connects to its master (the dual end point of IEEE 1815-2012 annex A.3), serves that connection like an accepted one, and connects again whenever it ends, after 1 second and doubling up to 1 minute between failed attempts. Over TLS it is the TLS client: `--tls-ca` verifies the master (the system roots by default), and `--tls-cert` and `--tls-key`, when given, are presented to it. A master that waits for it is `dnp3ctl client … --listen`.

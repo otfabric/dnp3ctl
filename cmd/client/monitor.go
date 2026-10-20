@@ -56,6 +56,9 @@ drops the first: run other commands next to a monitor with another --master.`,
 
   # Capture one minute into a file
   dnp3ctl client monitor --ip 192.168.1.20 --duration 60 --format json > events.jsonl
+
+  # An outstation that connects to the master over TLS; wait for it again after a loss
+  dnp3ctl client monitor --listen 10.0.0.1:19999 --tls-cert scada.pem --tls-key scada.key --tls-ca ca.pem --timeout 60000
 `,
 	}
 	cfg := config.MonitorConfig{ConnConfig: connDefaults(), Unsolicited: "1,2,3", OutputFormat: text}

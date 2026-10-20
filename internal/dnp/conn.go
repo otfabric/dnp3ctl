@@ -8,10 +8,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -158,6 +160,37 @@ func ClientTLS(cfg config.TLSConfig) (*tls.Config, error) {
 	return out, nil
 }
 
+// ServerTLS builds the TLS configuration of a TLS server with the certificate and key of
+// cert and key: the outstation of `server start`, or the master of --listen. With clientCA,
+// the peer must present a certificate of one of its CAs.
+func ServerTLS(cert, key, clientCA string) (*tls.Config, error) {
+	pair, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("loading the certificate and key: %w", err)
+	}
+	out := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	if clientCA != "" {
+		pool, err := CertPool(clientCA)
+		if err != nil {
+			return nil, err
+		}
+		out.ClientCAs, out.ClientAuth = pool, tls.RequireAndVerifyClientCert
+	}
+	return out, nil
+}
+
+// ListenTLS builds the TLS configuration of --listen: the master is the TLS server of the
+// connection the outstation makes, and --tls-ca verifies the outstation's certificate.
+func ListenTLS(cfg config.TLSConfig) (*tls.Config, error) {
+	switch {
+	case cfg.Cert == "" || cfg.Key == "":
+		return nil, fmt.Errorf("TLS with --listen needs --tls-cert and --tls-key: the master is the TLS server of the connection")
+	case cfg.ServerName != "" || cfg.Insecure:
+		return nil, fmt.Errorf("--tls-server-name and --tls-insecure do not apply to --listen; --tls-ca makes the outstation present a certificate of that CA")
+	}
+	return ServerTLS(cfg.Cert, cfg.Key, cfg.CACert)
+}
+
 // CertPool reads PEM certificates from path.
 func CertPool(path string) (*x509.CertPool, error) {
 	pem, err := os.ReadFile(path)
@@ -231,22 +264,107 @@ func UDPOpener(addr string, localPort uint16) client.StreamOpener {
 	}
 }
 
+// acceptor is the listener of --listen: it waits for the outstation to connect, again
+// after every lost connection when the client reconnects, and remembers the address the
+// outstation connected from.
+type acceptor struct {
+	net.Listener
+	scheme string
+	accept client.StreamOpener
+	mu     sync.Mutex
+	remote config.Target
+}
+
+func newAcceptor(l net.Listener, scheme string) *acceptor {
+	return &acceptor{Listener: l, scheme: scheme, accept: client.Accept(l)}
+}
+
+// open is the stream opener of the client.
+func (a *acceptor) open(ctx context.Context) (io.ReadWriteCloser, net.Addr, error) {
+	rw, remote, err := a.accept(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	host, port, _ := net.SplitHostPort(remote.String())
+	n, _ := strconv.ParseUint(port, 10, 16)
+	a.mu.Lock()
+	a.remote = config.Target{Scheme: a.scheme, Host: host, Port: uint16(n)}
+	a.mu.Unlock()
+	return rw, remote, nil
+}
+
+// peer returns the outstation that connected last.
+func (a *acceptor) peer() config.Target {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.remote
+}
+
 // Session is a client of an outstation, prepared from the configuration of a command.
 type Session struct {
 	*client.Client
+	// Target is the outstation; with --listen the address it connected from, once it has.
 	Target     config.Target
 	Outstation uint16
 	Timeout    time.Duration
+	acceptor   *acceptor // with --listen
+}
+
+// Close closes the client and, with --listen, the listener.
+func (s *Session) Close() error {
+	err := s.Client.Close()
+	if s.acceptor != nil {
+		_ = s.acceptor.Close()
+	}
+	return err
 }
 
 // Validate checks everything about cfg that can be checked without connecting.
 func Validate(cfg *config.ConnConfig) error {
-	_, _, err := options(cfg, nil)
+	_, _, _, err := options(cfg, nil)
 	return err
 }
 
-// options returns the target of cfg and the client options that reach it.
-func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.Option, error) {
+// options returns the target of cfg and the client options that reach it; with --listen
+// and TLS also the TLS configuration of the listener.
+func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.Option, *tls.Config, error) {
+	target, opts, err := targetOptions(cfg)
+	if err != nil {
+		return target, nil, nil, err
+	}
+	var listenTLS *tls.Config
+	if target.Listen && target.TLS() {
+		if listenTLS, err = ListenTLS(cfg.TLSConfig); err != nil {
+			return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, err.Error(), err)
+		}
+	}
+	user, err := SecureAuthUser(cfg.AuthConfig)
+	if err != nil {
+		return target, nil, nil, err
+	}
+	switch {
+	case cfg.SAKeyChange != 0 && (user == nil || user.UpdateKey == nil):
+		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-change-interval needs an update key: set --sa-update-key-file or DNP3CTL_SA_UPDATE_KEY", nil)
+	case cfg.SAAggressive && user == nil:
+		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-aggressive needs secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)", nil)
+	}
+	if user != nil {
+		opts = append(opts, client.WithSecureAuthentication(*user))
+	}
+	if cfg.SAKeyChange != 0 {
+		opts = append(opts, client.WithKeyChangeInterval(time.Duration(cfg.SAKeyChange)*time.Second))
+	}
+	if cfg.SAAggressive {
+		opts = append(opts, client.WithAggressiveMode())
+	}
+	if cfg.Debug && trace != nil {
+		opts = append(opts, client.WithMetrics(&Tracer{W: trace}))
+	}
+	return target, opts, listenTLS, nil
+}
+
+// targetOptions returns the target of cfg and the options of the link and the transport.
+func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, error) {
 	target, err := cfg.ResolveTarget()
 	if err != nil {
 		return target, nil, errs.InvalidInput(errs.CodeInvalidURL, err.Error(), err)
@@ -276,16 +394,18 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 	if cfg.Retries != 0 {
 		opts = append(opts, client.WithRetry(client.Retry{Attempts: int(cfg.Retries) + 1}))
 	}
-	switch target.Scheme {
-	case config.SchemeTLS:
+	switch {
+	case target.Listen:
+		// The stream opener waits on the listener, which Open creates.
+	case target.Scheme == config.SchemeTLS:
 		tc, err := ClientTLS(cfg.TLSConfig)
 		if err != nil {
 			return target, nil, errs.WrapValidation(err)
 		}
 		opts = append(opts, client.WithTLS(tc))
-	case config.SchemeUDP:
+	case target.Scheme == config.SchemeUDP:
 		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), cfg.UDPLocalPort)))
-	case config.SchemeSerial:
+	case target.Scheme == config.SchemeSerial:
 		sc, err := SerialSettings(target.Device, cfg.SerialConfig)
 		if err != nil {
 			return target, nil, errs.WrapValidation(err)
@@ -296,39 +416,40 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("--udp-local-port needs a udp:// URL; the target is %s", target), nil)
 	}
 	if target.Scheme != config.SchemeTLS && cfg.WantsTLS() {
-		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("TLS flags need a tls:// URL or --ip; the target is %s", target), nil)
-	}
-	user, err := SecureAuthUser(cfg.AuthConfig)
-	if err != nil {
-		return target, nil, err
-	}
-	if cfg.SAKeyChange != 0 && (user == nil || user.UpdateKey == nil) {
-		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-change-interval needs an update key: set --sa-update-key-file or DNP3CTL_SA_UPDATE_KEY", nil)
-	}
-	if user != nil {
-		opts = append(opts, client.WithSecureAuthentication(*user))
-	}
-	if cfg.SAKeyChange != 0 {
-		opts = append(opts, client.WithKeyChangeInterval(time.Duration(cfg.SAKeyChange)*time.Second))
-	}
-	if cfg.Debug && trace != nil {
-		opts = append(opts, client.WithMetrics(&Tracer{W: trace}))
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("TLS flags need a tls:// URL, --ip or --listen; the target is %s", target), nil)
 	}
 	return target, opts, nil
 }
 
-// Open prepares a client for the outstation of cfg without connecting. trace receives the
-// frame trace of --debug. extra options are applied last.
+// Open prepares a client for the outstation of cfg without connecting; with --listen it
+// listens already. trace receives the frame trace of --debug. extra options are applied
+// last.
 func Open(cfg *config.ConnConfig, trace io.Writer, extra ...client.Option) (*Session, error) {
-	target, opts, err := options(cfg, trace)
+	target, opts, listenTLS, err := options(cfg, trace)
 	if err != nil {
 		return nil, err
 	}
+	s := &Session{Target: target, Outstation: cfg.Outstation, Timeout: Timeout(cfg.Timeout)}
+	if target.Listen {
+		l, err := net.Listen("tcp", target.Addr())
+		if err != nil {
+			return nil, errs.New(errs.KindTransport, errs.CodeListenFailed, fmt.Sprintf("cannot listen for the outstation: %v", err), err)
+		}
+		if listenTLS != nil {
+			l = tls.NewListener(l, listenTLS)
+		}
+		s.acceptor = newAcceptor(l, target.Scheme)
+		opts = append(opts, client.WithStream(s.acceptor.open))
+	}
 	c, err := client.New(target.Addr(), append(opts, extra...)...)
 	if err != nil {
+		if s.acceptor != nil {
+			_ = s.acceptor.Close()
+		}
 		return nil, errs.WrapValidation(err)
 	}
-	return &Session{Client: c, Target: target, Outstation: cfg.Outstation, Timeout: Timeout(cfg.Timeout)}, nil
+	s.Client = c
+	return s, nil
 }
 
 // Dial is [Open] followed by connecting, bounded by the timeout of cfg.
@@ -341,7 +462,13 @@ func Dial(ctx context.Context, cfg *config.ConnConfig, trace io.Writer, extra ..
 	defer cancel()
 	if err := s.Connect(cctx); err != nil {
 		_ = s.Close()
+		if s.acceptor != nil && errors.Is(err, context.DeadlineExceeded) {
+			return nil, errs.New(errs.KindTransport, errs.CodeTransportConnectFailed, fmt.Sprintf("connection error: the outstation did not connect to %s within %s", s.Target.Addr(), s.Timeout), err)
+		}
 		return nil, WrapError(err)
+	}
+	if s.acceptor != nil {
+		s.Target = s.acceptor.peer()
 	}
 	return s, nil
 }

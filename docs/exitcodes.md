@@ -7,7 +7,7 @@
 | 0 | Success (`ExitOK`) |
 | 2 | Usage (`KindUsage`): unknown command or flag, a missing required flag, a value a flag cannot hold |
 | 3 | Invalid input (`KindInvalidInput`): a flag value, combination of flags, environment variable, key file or outstation model that does not make sense. Nothing was sent |
-| 4 | Transport (`KindTransport`): the connection cannot be made (refused, unreachable, TLS failure, serial port that does not open), is lost, or the server cannot listen |
+| 4 | Transport (`KindTransport`): the connection cannot be made (refused, unreachable, TLS failure, serial port that does not open, an outstation that does not connect to `--listen` within `--timeout`), is lost, or the server or `--listen` cannot listen |
 | 5 | Timeout (`KindTimeout`): the outstation did not answer a request, a link frame or a confirmation in time |
 | 6 | Refused or protocol error (`KindRefused`, `KindProtocol`): the outstation refused the request (IIN2 error bits, a control status other than `SUCCESS`, a refused file operation, a failed secure authentication), or violated the protocol |
 | 7 | Partial success (`ExitPartial`): a **valid** result was written to stdout, and it holds failures: a poll or read the outstation answered with values while it also reported an error in its IIN, or a failed measurement of `client ping` |

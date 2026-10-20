@@ -183,3 +183,33 @@ func TestTargets(t *testing.T) {
 		t.Errorf("--url: %v, %v", got, err)
 	}
 }
+
+func TestListenTargets(t *testing.T) {
+	for _, c := range []struct {
+		cfg  ConnConfig
+		want string
+	}{
+		{ConnConfig{Listen: "0.0.0.0"}, "tcp://0.0.0.0:20000"},
+		{ConnConfig{Listen: " 127.0.0.1:2404 "}, "tcp://127.0.0.1:2404"},
+		{ConnConfig{Listen: ":20001"}, "tcp://:20001"},
+		{ConnConfig{Listen: "::", Port: 20002}, "tcp://[::]:20002"},
+		{ConnConfig{Listen: "[::1]"}, "tcp://[::1]:20000"},
+		{ConnConfig{Listen: "127.0.0.1", TLSConfig: TLSConfig{Cert: "x"}}, "tls://127.0.0.1:20000"},
+		{ConnConfig{Listen: "127.0.0.1:2404", Port: 20000}, "tcp://127.0.0.1:2404"},
+	} {
+		got, err := c.cfg.ResolveTarget()
+		if err != nil || !got.Listen || got.String() != c.want {
+			t.Errorf("--listen %q: %v, %v; want %s", c.cfg.Listen, got, err, c.want)
+		}
+	}
+	for _, c := range []ConnConfig{
+		{Listen: "a", URL: "tcp://b"},
+		{Listen: "a", IP: "b"},
+		{Listen: "a:0"},
+		{Listen: "a:http"},
+	} {
+		if got, err := c.ResolveTarget(); err == nil {
+			t.Errorf("%+v was accepted: %v", c, got)
+		}
+	}
+}

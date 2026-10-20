@@ -330,6 +330,9 @@ func TestServer(t *testing.T) {
 		})
 		run(t, append([]string{"client", "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct"}, target...)...).want(t, 6)
 		run(t, append([]string{"client", "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--sa-update-key-file", keyFile}, target...)...).want(t, 0)
+		run(t, append([]string{"client", "operate", "--type", "crob", "--index", "1", "--op", "latch-off", "--mode", "sbo", "--sa-update-key-file", keyFile, "--sa-aggressive"}, target...)...).
+			want(t, 0).has(t, "SUCCESS")
+		run(t, append([]string{"client", "read", "--object", "g121v1", "--range", "12-13"}, target...)...).want(t, 0).has(t, "(successful authentications)", "(session key changes)")
 		stop()
 		(<-done).want(t, 0)
 	})

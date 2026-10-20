@@ -1,5 +1,38 @@
 # dnp3ctl Releases
 
+## v0.4.0
+
+**Date:** 2026-10-20  
+**Previous release:** v0.3.2
+
+### Summary
+
+dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.0.0 added: the dual end point, where the outstation connects to its master, in both roles; Secure Authentication aggressive mode and security statistics; and command events and times and intervals in the simulated outstation. New flags only: nothing that worked before changes.
+
+### Highlights
+
+- **Dual end point** (IEEE 1815-2012 annex A.3), for outstations behind a firewall or on a dial-out link:
+  - **`client … --listen host[:port]`** (`DNP3CTL_MASTER_LISTEN`) makes every client command wait for the outstation to connect instead of connecting to it, within `--timeout`; `client monitor` waits for it again after a lost connection. With `--tls-cert` and `--tls-key` dnp3ctl is the TLS server of that connection, and `--tls-ca` makes the outstation present a certificate of that CA. The result's `target` is the address the outstation connected from. Mutually exclusive with `--url` and `--ip`.
+  - **`server start --dial tcp://host[:port]`** or **`tls://host[:port]`** (`DNP3CTL_DIAL`) makes the simulated outstation connect to its master, and again whenever the connection ends (after 1 s, doubling up to 1 min). Over TLS it is the TLS client: the new **`--tls-ca`** (`DNP3CTL_TLS_CA`) verifies the master, `--tls-cert` and `--tls-key` are presented to it. The event log starts with a `dialing` event.
+- **Secure Authentication aggressive mode**: **`--sa-aggressive`** (`DNP3CTL_SA_AGGRESSIVE`) sends critical requests with their MAC once the outstation has challenged one, saving a round trip; in `client operate --mode sbo` the OPERATE goes in aggressive mode after the challenged SELECT. It needs a key. The simulated outstation accepts it.
+- **Security statistics**: the simulated outstation keeps the 18 statistics of IEEE 1815-2012 clause 7.6 per master when secure authentication is on, and reports g122 events in class 1. **`client read --object g121v1`** shows them with their name (`statistic` in JSON: `"session key changes"`, `"authentication failures"`, …).
+- **Command events** in the outstation model: **`command_event_class`** (and `command_event_variation`) on a `binary-output` or `analog-output` reports every executed control as a g13 or g43 event with the commanded value and the status. The demo outstation has them on binary output 0 and analog output 0.
+- **Times and intervals** (g50v4): the point type **`time-and-interval`** with an RFC 3339 `value`, `interval` and `interval_unit`, read with `client read --object g50v4`, which shows the time and the interval (`interval` and `interval_unit` in JSON, type `time-and-interval`). Like in the reference outstations it is not in class 0. The demo outstation has one.
+
+### Changed
+
+- `client` results: a measurement of a time and interval has the new fields `interval` and `interval_unit`, a security statistic the new field `statistic`; text and table output show them after the value. g50v4 objects used to be left out of results.
+- The client's `--tls-ca`, `--tls-cert` and `--tls-key` also apply to `--listen`, and `server start` has a `--tls-ca` for `--dial`; `--tls-ca` without a `tls://` `--dial` is refused.
+- An outstation that does not connect to `--listen` in time, and a `--listen` address that cannot be opened, exit with code 4 (`transport_connect_failed`, `listen_failed`).
+- docs: [SECURITY.md](SECURITY.md) on aggressive mode, the security statistics and the dual end point; the interoperability note now names DSC Systems' go-dnp3, against which go-dnp3 verifies Secure Authentication.
+
+### Upgrade notes
+
+- No breaking changes. Scripts that read `--format json` see three new optional fields (`interval`, `interval_unit`, `statistic`) and the `dialing` event.
+- `DNP3CTL_MASTER_LISTEN` is the client's variable for `--listen`; `server start --listen` keeps `DNP3CTL_LISTEN`.
+
+---
+
 ## v0.3.2
 
 **Date:** 2026-10-20  

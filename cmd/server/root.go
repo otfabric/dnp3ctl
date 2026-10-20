@@ -53,9 +53,12 @@ class and device attributes, and serves files. Values with "simulate" in the mod
 by themselves and produce events.
 
 It serves TCP by default (port 20000), TLS with --tls-cert and --tls-key (port 19999), UDP
-with --udp, or a serial port with --serial. With --sa-key-file (or DNP3CTL_SA_KEY) it
-requires Secure Authentication v5: critical requests are challenged and executed only
-when the master answers with the pre-shared key.
+with --udp, or a serial port with --serial. With --dial it does not listen but connects to
+its master (the dual end point), tcp:// or tls://, and connects again whenever the
+connection ends. With --sa-update-key-file or --sa-key-file (or DNP3CTL_SA_UPDATE_KEY,
+DNP3CTL_SA_KEY) it requires Secure Authentication v5: critical requests are challenged,
+or accepted in aggressive mode, and executed only with the right MAC; the security
+statistics of every master are kept (g121, events g122).
 
 Every event (connections, requests, controls, unsolicited responses, file transfers) is
 written to stdout as it happens: one line with --format text, one JSON object per line with
@@ -81,6 +84,9 @@ model to restrict it.`,
   # On a serial port, 19200 baud
   dnp3ctl server start --serial /dev/ttyUSB0 --baud 19200
 
+  # Connect to the master instead of listening, over TLS
+  dnp3ctl server start --config outstation.yaml --dial tls://scada.example.net --tls-ca ca.pem --tls-cert rtu.pem --tls-key rtu.key
+
   # In a test pipeline: serve for 60 seconds, then exit
   dnp3ctl server start --config outstation.yaml --duration 60
 `,
@@ -89,7 +95,7 @@ model to restrict it.`,
 	runner.RegisterCommandCfg(cmd, &cfg, func(c *cobra.Command) {
 		_ = c.MarkFlagFilename("config", "yaml", "yml", "json")
 		_ = cli.RegisterEnumFlagCompletion(c, "parity", []string{"none", "even", "odd"})
-		for _, f := range []string{"tls-cert", "tls-key", "tls-client-ca"} {
+		for _, f := range []string{"tls-cert", "tls-key", "tls-client-ca", "tls-ca"} {
 			_ = c.MarkFlagFilename(f, "pem", "crt", "cer", "key")
 		}
 		_ = c.MarkFlagFilename("sa-key-file")

@@ -30,7 +30,8 @@ type Options struct {
 	Link server.Link
 	// Auth enables Secure Authentication v5 with this user.
 	Auth *secauth.User
-	// TLS makes Run serve TLS on its listener; Serve takes connections as they are.
+	// TLS makes Run serve TLS on its listener (Serve takes connections as they are), and is
+	// the TLS client configuration of DialAndServe.
 	TLS *tls.Config
 	// MaxConnections bounds concurrent connections (0 = the library default, 16).
 	MaxConnections int
@@ -147,6 +148,9 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 		}
 		opts = append(opts, server.WithAttributes(attrs))
 	}
+	if st.opts.TLS != nil {
+		opts = append(opts, server.WithTLS(st.opts.TLS))
+	}
 	if st.opts.MaxConnections != 0 {
 		opts = append(opts, server.WithMaxConnections(st.opts.MaxConnections))
 	}
@@ -171,7 +175,8 @@ func (st *Station) load(reset bool) error {
 			continue
 		}
 		cfg := server.PointConfig{Class: server.Class(p.Class), StaticVariation: p.StaticVariation, EventVariation: p.EventVariation,
-			Deadband: p.Deadband, ExcludeFromClass0: p.ExcludeFromClass0}
+			Deadband: p.Deadband, ExcludeFromClass0: p.ExcludeFromClass0,
+			CommandEventClass: server.Class(p.CommandEventClass), CommandEventVariation: p.CommandEventVariation}
 		if err := db.Add(t, p.Index, cfg, v); err != nil {
 			return fmt.Errorf("%s %d: %w", typeName(t), p.Index, err)
 		}
@@ -262,6 +267,12 @@ func (st *Station) remoteText(a net.Addr) string {
 		return ""
 	}
 	return a.String()
+}
+
+// DialAndServe connects to the master at addr, with TLS when the options have it, serves
+// the connection and connects again whenever it ends (the dual end point), until Close.
+func (st *Station) DialAndServe(ctx context.Context, addr string) error {
+	return st.srv.DialAndServe(ctx, addr, server.Redial{})
 }
 
 // ServeConn serves one stream, a serial port for example, until it ends or Close.
