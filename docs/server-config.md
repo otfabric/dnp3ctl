@@ -4,6 +4,8 @@
 
 A field the model does not know is an error, and everything that is wrong with a model is reported at once, before the server listens.
 
+`--config` can be given several times (or with comma-separated files): every model is then an outstation of its own, and all of them are served behind the same port, serial line or UDP socket, as on a multi-drop line. Each answers at the `address` of its model, which must differ between the models, and keeps its own points, event buffers, controls, files and secure authentication state; a broadcast reaches every one. Options of the command (`--allow`, `--max-sessions`, secure authentication keys, link settings) apply to all of them. `--dial` and `--udp-peer` take a single model.
+
 ```yaml
 outstation:
   name: Feeder 7 RTU          # shown in the event log; not sent

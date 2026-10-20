@@ -1,5 +1,32 @@
 # dnp3ctl Releases
 
+## v0.6.0
+
+**Date:** 2026-10-20  
+**Previous release:** v0.5.0
+
+### Summary
+
+dnp3ctl moves to [go-dnp3](https://github.com/otfabric/go-dnp3) v1.2.0: `server start` serves several outstations behind one port, serial line or UDP socket, and the client commands report BCD (g101) and unsigned integer (g102) points. Nothing that worked before changes.
+
+### Highlights
+
+- **Several outstations:** `server start --config a.yaml --config b.yaml` (or comma-separated files, or `DNP3CTL_CONFIG`) serves every model as an outstation of its own, behind the same port, serial line or UDP socket, as on a multi-drop line. Each answers at the link address of its model with its own points, event buffers and controls; a broadcast reaches all of them. Two models with the same link address are refused; `--dial` and `--udp-peer` take a single model.
+- **The event log names the outstation** when several are served: `[11]` after the event in text, `outstation` in JSON, an OUTSTATION column in the table. `listening` lists every outstation with its link address.
+- **BCD and unsigned integers:** `client poll`, `read` and `monitor` report g101 (BCD, `type` `bcd`, the decimal number) and g102 (`type` `unsigned-integer`), which go-dnp3 now decodes.
+
+### Changed
+
+- dnp3ctl reads times and intervals (g50v4) through go-dnp3's own measurement list, which now carries them, instead of its own decoding; the output is the same.
+
+### Fixed
+
+- go-dnp3 v1.2.0 fixes a panic of the outstation when a response fragment had almost no room left, which could stop the simulated outstation while it answered a large poll.
+
+### Upgrade notes
+
+- No breaking changes to commands, flags or JSON output. Server events gain `outstation` when several outstations are served, and the table output of `server start` gains an OUTSTATION column (empty with one outstation).
+
 ## v0.5.0
 
 **Date:** 2026-10-20  
