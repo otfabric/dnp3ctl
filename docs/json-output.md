@@ -6,7 +6,7 @@ These conventions are a **stable contract** for scripting. Field names are snake
 
 | Concept | JSON fields |
 |--------|-------------|
-| Outstation | `target`: the URL of the outstation (`tcp://host:20000`, `tls://host:19999`, `udp://host:20000`, `serial:///dev/ttyUSB0`); `outstation`: its link address (number) |
+| Outstation | `target`: the URL of the outstation (`tcp://host:20000`, `tls://host:19999`, `udp://host:20000`, `serial:///dev/ttyUSB0`); with `--listen` the address the outstation connected from (`tcp://10.0.0.7:53122`); `outstation`: its link address (number) |
 | Object | `object` (`"g30v5"`), with `group` and `variation` (numbers) where a value is reported |
 | Point index | `index` (number) |
 | Internal indications | `iin`: the set IIN bits of the last response fragment joined with `\|` (`"DEVICE_RESTART\|NEED_TIME"`), `""` when none is set |
@@ -23,12 +23,14 @@ One point value or event as an outstation reported it. Used by `client poll`, `r
 | Field | Meaning |
 |-------|---------|
 | `object`, `group`, `variation` | the object the value was sent as |
-| `type` | the kind of point: `binary-input`, `double-bit-input`, `binary-output`, `binary-output-command`, `counter`, `frozen-counter`, `analog-input`, `frozen-analog-input`, `analog-deadband`, `analog-output`, `analog-output-command`, `octet-string`, `security-statistic`, `iin`; `g<n>` for another group |
+| `type` | the kind of point: `binary-input`, `double-bit-input`, `binary-output`, `binary-output-command`, `counter`, `frozen-counter`, `analog-input`, `frozen-analog-input`, `analog-deadband`, `analog-output`, `analog-output-command`, `octet-string`, `time-and-interval` (g50v4), `security-statistic`, `iin`; `g<n>` for another group |
 | `index` | the point index |
 | `event` | `true` for an object of an event group (g2, g4, g11, g13, g22, g23, g32, g33, g42, g43, g111, g122); omitted otherwise |
-| `value` | boolean for binary points; string for double-bit inputs (`"off"`, `"on"`, `"intermediate"`, `"indeterminate"`) and octet strings (the text when it is printable, otherwise `"0x…"` hex); number for counters and analog values. A value sent in a single-precision variation is the shortest decimal that variation holds (`11.02`) |
+| `value` | boolean for binary points; string for double-bit inputs (`"off"`, `"on"`, `"intermediate"`, `"indeterminate"`) and octet strings (the text when it is printable, otherwise `"0x…"` hex); the time of a time and interval (RFC 3339); number for counters, analog values and security statistics. A value sent in a single-precision variation is the shortest decimal that variation holds (`11.02`) |
 | `flags` | the quality flags that are set, joined with `\|`: `ONLINE`, `RESTART`, `COMM_LOST`, `REMOTE_FORCED`, `LOCAL_FORCED`, and by type `CHATTER_FILTER` (binary inputs), `ROLLOVER`, `DISCONTINUITY` (counters), `OVER_RANGE`, `REFERENCE_ERR` (analog points). Omitted for variations without flags (packed and "without flag" variations) and when no flag is set |
 | `status` | the command status of a command event (g13, g43), for example `"SUCCESS"` |
+| `interval`, `interval_unit` | a time and interval (g50v4) only: the interval (number) and its unit: `"none"`, `"milliseconds"`, `"seconds"`, `"minutes"`, `"hours"`, `"days"`, `"weeks"`, `"months"`, `"months-day"`, `"months-last"`, `"months-same"` (`"unit-<n>"` for a code the standard does not define) |
+| `statistic` | a security statistic (g121, g122) only: its name by index, `"unexpected messages"`, `"authorization failures"`, `"authentication failures"`, `"reply timeouts"`, `"rekeys due to authentication failure"`, `"total messages sent"`, `"total messages received"`, `"critical messages sent"`, `"critical messages received"`, `"discarded messages"`, `"error messages sent"`, `"error messages received"`, `"successful authentications"`, `"session key changes"`, `"failed session key changes"`, `"update key changes"`, `"failed update key changes"`, `"rekeys due to restarts"` |
 | `timestamp` | the time of the event or freeze, for the variations with time |
 | `received_at`, `unsolicited` | streams (`client monitor`) only: when the value arrived, and `true` when it came in an unsolicited response |
 
@@ -47,7 +49,7 @@ One point value or event as an outstation reported it. Used by `client poll`, `r
 | `client file get`, `client file put` | `target`, `outstation`, `direction` (`"download"` or `"upload"`), `path` (on the outstation), `local` (the local file; omitted for stdout), `length`, `sha256` (of the content), `duration_ms` |
 | `client objects` | `count`, `objects`: `object`, `group`, `variation`, `name`, `event`, `size` (octets of one object, 0 when not fixed) |
 | `discover` | `subnets`, `ports`, `hosts` (addresses probed), `found`, `duration_ms`, `devices`: `ip`, `port`, `status` (`"dnp3"` or `"open"`), `outstation` and `master` (the link addresses of the answer; `"dnp3"` only), `rtt_ms` |
-| `server start` (stream) | one event per line (JSON Lines): `timestamp`, `event`, and where they apply `remote`, `function` (`"READ"`, `"SELECT"`, `"OPERATE"`, …), `object`, `index`, `value`, `status`, `detail`. Events: `listening`, `connected`, `disconnected`, `refused`, `request`, `control`, `unsolicited`, `time-sync`, `restart`, `write`, `file`, `events-discarded`, `error`, `stopping` |
+| `server start` (stream) | one event per line (JSON Lines): `timestamp`, `event`, and where they apply `remote`, `function` (`"READ"`, `"SELECT"`, `"OPERATE"`, …), `object`, `index`, `value`, `status`, `detail`. Events: `listening` (or `dialing` with `--dial`, naming the master in `remote`), `connected`, `disconnected`, `refused`, `request`, `control`, `unsolicited`, `time-sync`, `restart`, `write`, `file`, `events-discarded`, `error`, `stopping` |
 
 ## Streams and stderr
 

@@ -50,9 +50,19 @@ Keys are handled as follows:
 
 - They are read from files (`--sa-update-key-file`, `--sa-key-file`) or environment variables (`DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`), as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the files to the environment on shared hosts. Give one kind of key, not both
 - The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
-- Interoperability: no other stack in the go-dnp3 interop suite runs SAv5 (opendnp3 3.x and Step Function I/O's dnp3 have none), so it is verified between go-dnp3's own master and outstation, and dnp3ctl against its simulated outstation. The challenge-reply MAC is computed over the challenge followed by the critical request, as other SAv5 implementations do. In the session key change, go-dnp3's master sends the key status message with its MAC value, and its outstation accepts it with or without, as implementations differ
-- The update key change, user management and aggressive mode are not implemented. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
+- **Aggressive mode** (`--sa-aggressive`, `DNP3CTL_SA_AGGRESSIVE`; clause 7.5.2.2.4): once the outstation has challenged one request, the master sends further critical requests with their MAC over that last challenge, without waiting for a new one. It saves a round trip per control and needs a key like any secure authentication; the outstation checks the MAC and the challenge sequence number. Within one command it applies from the second critical request on: in `client operate --mode sbo` the OPERATE after the challenged SELECT
+- **Security statistics** (clause 7.6): an outstation with secure authentication counts, per master, its authentication failures, session key changes, critical messages and the other statistics of the standard. `client read --object g121v1` shows them by name; the simulated outstation keeps them and reports g122 events in class 1 every 10 increments. A rising `authentication failures` or `unexpected messages` count is worth a look
+- Interoperability: go-dnp3's interop suite verifies the challenge, the session key change and the security statistics against DSC Systems' go-dnp3 in both directions; opendnp3 3.x and Step Function I/O's dnp3 have no SAv5. Aggressive mode is verified between go-dnp3's own master and outstation only, and dnp3ctl against its simulated outstation, as no reference stack implements it
+- The update key change and user management are not implemented. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
 - The simulated outstation verifies with the same key (`server start --sa-update-key-file` or `--sa-key-file`); it drops the session keys when a connection ends, and challenges the default critical function codes of go-dnp3 (controls, writes, restarts, freezes, assign class, opening and deleting files, among others)
+
+### The outstation connects (dual end point)
+
+With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEEE 1815-2012 annex A.3), and with `server start --dial` the simulated outstation connects to its master. A listening master takes the **first connection** that arrives on its port as the outstation, and a dialing outstation serves whoever answers at the address:
+
+- Listen on the interface the outstation comes from (`--listen 10.0.0.1`), not on every interface, and only for as long as the command runs (it closes the port when it ends)
+- Use TLS where the network is not trusted: `--listen` with `--tls-cert`, `--tls-key` and `--tls-ca`, so that the outstation must present a certificate of that CA; `server start --dial tls://…` verifies the master's certificate against `--tls-ca` (the system roots by default) and presents `--tls-cert` when given
+- Link addresses still apply: a connection from a station with another link address gets no answer, and Secure Authentication works as on a connection the master makes
 
 ### File Transfer Credentials
 

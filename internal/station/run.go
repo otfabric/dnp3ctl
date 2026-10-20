@@ -24,25 +24,44 @@ func serverTLS(cfg *config.ServerConfig) (*tls.Config, error) {
 	if (cfg.Cert == "") != (cfg.Key == "") {
 		return nil, fmt.Errorf("--tls-cert and --tls-key must be given together")
 	}
-	if cfg.Cert == "" {
-		if cfg.ClientCA != "" {
-			return nil, fmt.Errorf("--tls-client-ca needs --tls-cert and --tls-key")
-		}
+	switch {
+	case cfg.CACert != "":
+		return nil, fmt.Errorf("--tls-ca is for a tls:// --dial; masters that connect are verified with --tls-client-ca")
+	case cfg.Cert == "" && cfg.ClientCA != "":
+		return nil, fmt.Errorf("--tls-client-ca needs --tls-cert and --tls-key")
+	case cfg.Cert == "":
 		return nil, nil
 	}
-	pair, err := tls.LoadX509KeyPair(cfg.Cert, cfg.Key)
-	if err != nil {
-		return nil, fmt.Errorf("loading the certificate and key: %w", err)
-	}
-	out := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	return dnp.ServerTLS(cfg.Cert, cfg.Key, cfg.ClientCA)
+}
+
+// dialTLS builds the TLS configuration of a tls:// --dial, the outstation being the TLS
+// client: --tls-ca verifies the master, --tls-cert and --tls-key are presented to it.
+func dialTLS(cfg *config.ServerConfig) (*tls.Config, error) {
 	if cfg.ClientCA != "" {
-		pool, err := dnp.CertPool(cfg.ClientCA)
-		if err != nil {
-			return nil, err
-		}
-		out.ClientCAs, out.ClientAuth = pool, tls.RequireAndVerifyClientCert
+		return nil, fmt.Errorf("--tls-client-ca does not apply to --dial: verify the master with --tls-ca")
 	}
-	return out, nil
+	return dnp.ClientTLS(config.TLSConfig{CACert: cfg.CACert, Cert: cfg.Cert, Key: cfg.Key})
+}
+
+// dialTarget returns the master of --dial, and the TLS configuration to reach it with.
+func dialTarget(cfg *config.ServerConfig) (*config.Target, *tls.Config, error) {
+	t, err := config.ParseURL(cfg.Dial)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--dial: %w", err)
+	}
+	switch {
+	case cfg.Serial != "" || cfg.UDP || cfg.Listen != "" || cfg.Port != 0 || len(cfg.Allow) > 0:
+		return nil, nil, fmt.Errorf("--dial cannot be combined with --serial, --udp, --listen, --port or --allow")
+	case t.TLS():
+		tc, err := dialTLS(cfg)
+		return &t, tc, err
+	case t.Scheme != config.SchemeTCP:
+		return nil, nil, fmt.Errorf("--dial %s: the outstation connects over tcp:// or tls://", t)
+	case cfg.Cert != "" || cfg.Key != "" || cfg.CACert != "" || cfg.ClientCA != "":
+		return nil, nil, fmt.Errorf("TLS flags need a tls:// --dial; the master is %s", t)
+	}
+	return &t, nil, nil
 }
 
 func parseAllow(list []string) ([]netip.Prefix, error) {
@@ -78,7 +97,8 @@ type plan struct {
 	model *Model
 	opts  Options
 	allow []netip.Prefix
-	peer  net.Addr // the master of --udp-peer, or nil
+	peer  net.Addr       // the master of --udp-peer, or nil
+	dial  *config.Target // the master of --dial, or nil
 }
 
 func check(cfg *config.ServerConfig) (*plan, error) {
@@ -86,7 +106,15 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	tc, err := serverTLS(cfg)
+	var (
+		tc   *tls.Config
+		dial *config.Target
+	)
+	if cfg.Dial != "" {
+		dial, tc, err = dialTarget(cfg)
+	} else {
+		tc, err = serverTLS(cfg)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +147,7 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 		return nil, err
 	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
-	return &plan{model: m, allow: allow, peer: peer, opts: Options{
+	return &plan{model: m, allow: allow, peer: peer, dial: dial, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
 	}}, nil
 }
@@ -173,7 +201,7 @@ var openSerial = dnp.OpenSerial
 
 // Run serves the outstation of cfg until ctx ends or the duration of cfg has passed. Every
 // event goes to log and, with --debug, every frame to trace; ready, when not nil, is called
-// with the address once the outstation serves.
+// with the address once the outstation serves (nil with --dial).
 func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEvent), trace io.Writer, ready func(net.Addr)) error {
 	p, err := check(cfg)
 	if err != nil {
@@ -206,6 +234,10 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 		addr = remote
 		st.event(types.ServerEvent{Event: "listening", Remote: "serial://" + cfg.Serial, Detail: detail})
 		go func() { served <- st.ServeConn(port, remote) }()
+	case p.dial != nil:
+		st.event(types.ServerEvent{Event: "dialing", Remote: p.dial.String(), Detail: detail})
+		// Only Close ends DialAndServe, so that it returns nil when the server stops.
+		go func() { served <- st.DialAndServe(context.WithoutCancel(ctx), p.dial.Addr()) }()
 	case cfg.UDP:
 		pc, err := net.ListenPacket("udp", listenAddr(cfg, false))
 		if err != nil {

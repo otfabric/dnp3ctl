@@ -24,12 +24,14 @@ const (
 )
 
 // Target is a resolved outstation address: a host and port for tcp, tls and udp, or the
-// device of a serial port.
+// device of a serial port. With Listen it is the local address a master waits on for the
+// outstation to connect (tcp or tls; an empty host is every interface).
 type Target struct {
 	Scheme string
 	Host   string
 	Port   uint16
 	Device string
+	Listen bool
 }
 
 // Serial reports whether the target is a serial port.
@@ -111,11 +113,17 @@ func ParseURL(raw string) (Target, error) {
 }
 
 // ResolveTarget returns the outstation a client command talks to: --url, or --ip with
-// --port. The two styles are mutually exclusive, and one of them is required. With --ip,
-// TLS is used when a TLS flag asks for it, on the port given (20000 unless --port is set).
+// --port, or with --listen the address to wait on for the outstation to connect. The three
+// styles are mutually exclusive, and one of them is required. With --ip and --listen, TLS
+// is used when a TLS flag asks for it, on the port given (20000 unless --port is set; a
+// port in --listen takes precedence).
 func (c *ConnConfig) ResolveTarget() (Target, error) {
-	url, ip := strings.TrimSpace(c.URL), strings.TrimSpace(c.IP)
+	url, ip, listen := strings.TrimSpace(c.URL), strings.TrimSpace(c.IP), strings.TrimSpace(c.Listen)
 	switch {
+	case listen != "" && (url != "" || ip != ""):
+		return Target{}, fmt.Errorf("--listen is mutually exclusive with --url and --ip")
+	case listen != "":
+		return c.listenTarget(listen)
 	case url != "" && ip != "":
 		return Target{}, fmt.Errorf("--url and --ip are mutually exclusive")
 	case url != "":
@@ -133,4 +141,24 @@ func (c *ConnConfig) ResolveTarget() (Target, error) {
 	default:
 		return Target{}, fmt.Errorf("no outstation given: set --url (tcp://, tls://, udp://host:port or serial:///dev/ttyUSB0) or --ip")
 	}
+}
+
+// listenTarget returns the target of --listen: host, host:port or :port, with the port of
+// --port (20000 unless set) when it names none.
+func (c *ConnConfig) listenTarget(listen string) (Target, error) {
+	t := Target{Scheme: SchemeTCP, Host: strings.TrimSuffix(strings.TrimPrefix(listen, "["), "]"), Port: c.Port, Listen: true}
+	if c.WantsTLS() {
+		t.Scheme = SchemeTLS
+	}
+	if host, port, err := net.SplitHostPort(listen); err == nil {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
+			return Target{}, fmt.Errorf("invalid --listen %q: port must be 1-65535", listen)
+		}
+		t.Host, t.Port = host, uint16(n)
+	}
+	if t.Port == 0 {
+		t.Port = DefaultPort
+	}
+	return t, nil
 }

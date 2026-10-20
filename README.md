@@ -25,7 +25,7 @@ It is built for commissioning and site acceptance tests, point-to-point checks, 
 - **Files** — list the directories of an outstation, fetch disturbance records and logs, write and delete files (group 70).
 - **Find what is there** — `discover` sweeps subnets for outstations with a single link status request, and reports the link address each answers from.
 - **Simulate an RTU** — `server start` serves an outstation from a YAML model: values that change by themselves, event classes and buffers per master, unsolicited responses, controls with select-before-operate, restarts, attributes, files and uploads.
-- **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines; Secure Authentication v5 with session key change or a pre-shared key.
+- **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines, and the dual end point where the outstation connects to the master; Secure Authentication v5 with session key change or a pre-shared key, aggressive mode and security statistics.
 - **Script-friendly** — `--format text|json|table`, a single JSON error object on failure, stable exit codes and `DNP3CTL_*` environment variables.
 - **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/dnp3ctl/releases), with SHA-256 checksums; no runtime to install.
 
@@ -156,10 +156,10 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Files            | File transfer (group 70): list a directory, file info, fetch, write, delete; file authentication with credentials from a file or the environment. |
 | Objects          | List the groups and variations dnp3ctl encodes and decodes.                                                               |
 | Discover         | Find DNP3 outstations on subnets with a link status request (no application layer request) and report their link address. |
-| Server           | A simulated outstation from a YAML or JSON model: every point type, event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, restarts, time synchronization, device attributes, files and uploads, simulated values; TCP, TLS, UDP or serial; allow-list; Secure Authentication. |
-| Transports       | TCP, TLS (IEEE 1815-2012 Annex B / IEC 62351-3) with server verification and client certificates, UDP and serial lines, selected with **`--url`**. See [Connecting to an outstation](#connecting-to-an-outstation). |
+| Server           | A simulated outstation from a YAML or JSON model: every point type, times and intervals (g50v4), event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, command events, restarts, time synchronization, device attributes, files and uploads, simulated values; TCP, TLS, UDP or serial, listening or connecting to its master (`--dial`); allow-list; Secure Authentication with security statistics. |
+| Transports       | TCP, TLS (IEEE 1815-2012 Annex B / IEC 62351-3) with server verification and client certificates, UDP and serial lines, selected with **`--url`**; the dual end point (annex A.3), where the master waits for the outstation to connect, with **`--listen`**. See [Connecting to an outstation](#connecting-to-an-outstation). |
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
-| Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1. |
+| Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
 | Robustness       | Timeouts per fragment and per request, retries of the requests that are safe to repeat (never controls), reconnects in `monitor`. |
 | `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. |
 | `--debug`        | Trace every link frame and application fragment sent and received, decoded, to stderr.                                   |
@@ -418,7 +418,7 @@ See [docs/exitcodes.md](docs/exitcodes.md) for the details and the `code` values
 
 ### Connecting to an outstation
 
-Every `dnp3ctl client` command takes the outstation as a URL, or as an address and a port. The two styles are **mutually exclusive**, and one of them is required.
+Every `dnp3ctl client` command takes the outstation as a URL, as an address and a port, or, when the outstation connects to the master, the address to wait on. The three styles are **mutually exclusive**, and one of them is required.
 
 | Flags | Connects to |
 |---|---|
@@ -427,6 +427,17 @@ Every `dnp3ctl client` command takes the outstation as a URL, or as an address a
 | `--url udp://host[:port]` | DNP3 over UDP; port 20000 when omitted. dnp3ctl sends from any free port unless `--udp-local-port` names one, for outstations that answer only a configured master endpoint (often port 20000) |
 | `--url serial:///dev/ttyUSB0` | A serial line (`serial://COM3` on Windows), with `--baud` (default 9600), `--data-bits` (8), `--parity` (`none`, `even`, `odd`) and `--stop-bits` (1) |
 | `--ip host [--port n]` | TCP on port 20000 or `n`; TLS when a `--tls…` flag is given |
+| `--listen host[:port]` | Waits for the outstation to connect: the dual end point (IEEE 1815-2012 annex A.3), for outstations behind a firewall or on a dial-out link. Port 20000 or `--port` when `--listen` names none (`:20000` listens on every interface); TLS when a `--tls…` flag is given |
+
+**The outstation connects (dual end point).** With `--listen` dnp3ctl opens the port, waits up to `--timeout` (default 10 s) for the outstation to connect, and closes the port when the command ends; `client monitor` waits for the outstation again whenever the connection is lost. The result's `target` is the address the outstation connected from. Over TLS dnp3ctl is the TLS **server**: `--tls-cert` and `--tls-key` are its server certificate, and `--tls-ca` requires the outstation to present a certificate of that CA (`--tls-server-name` and `--tls-insecure` do not apply). An outstation that does not connect in time ends the command with exit code 4. See [SECURITY.md](SECURITY.md#the-outstation-connects-dual-end-point).
+
+```console
+# Wait on port 20000 for the outstation, then run an integrity poll
+dnp3ctl client poll --listen :20000
+
+# The same over TLS; the outstation must present a certificate of ca.pem
+dnp3ctl client monitor --listen 10.0.0.1:19999 --tls-cert scada.pem --tls-key scada.key --tls-ca ca.pem
+```
 
 **Link addresses.** `--outstation` is the link address of the outstation (default 10) and `--master` the one of dnp3ctl (default 1). Both must match what the outstation is configured with: an outstation does not answer frames for another address, and many answer only the masters they know. A request that times out (exit code 5) against an outstation that accepts the connection is most often a wrong `--outstation`; `dnp3ctl discover --subnets <host> --outstations 1,2,3,4,10` finds the right one.
 
@@ -459,9 +470,13 @@ dnp3ctl client poll --url tls://rtu.example.net --tls-ca ca.pem --tls-cert scada
 | `DNP3CTL_SA_KEY` | The pre-shared session key as hex, instead of a file |
 | `--sa-user` | User number (default 1) |
 | `--sa-mac` | `hmac-sha256-16` (default), `hmac-sha256-8`, `hmac-sha1-10` or `hmac-sha1-8` |
+| `--sa-aggressive` | Aggressive mode: once the outstation has challenged one request, send critical requests with their MAC, without waiting for a challenge (in `client operate --mode sbo`, the OPERATE after the SELECT). Needs a key |
 
 ```console
 dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file /etc/dnp3/outstation10.update.key
+
+# The security statistics the outstation keeps for this master (g121v1), by name
+dnp3ctl client read --ip 192.168.1.20 --object g121v1
 ```
 
 ### Common Commands
@@ -498,6 +513,9 @@ dnp3ctl client read --ip 192.168.1.20 --object g32 --count 10
 
 # The frozen counters after a freeze
 dnp3ctl client read --ip 192.168.1.20 --object g21v5
+
+# Times and intervals, such as a schedule (g50v4: not in class 0)
+dnp3ctl client read --ip 192.168.1.20 --object g50v4
 ```
 
 `dnp3ctl client objects` lists every object and variation; `--object` completes to them in the shell.
@@ -644,6 +662,9 @@ dnp3ctl server start --config outstation.yaml --serial /dev/ttyUSB0 --baud 19200
 
 # With Secure Authentication v5
 dnp3ctl server start --config outstation.yaml --sa-update-key-file outstation.update.key
+
+# Connect to the master instead of listening (dual end point), over TLS
+dnp3ctl server start --config outstation.yaml --dial tls://scada.example.net --tls-ca ca.pem --tls-cert rtu.pem --tls-key rtu.key
 ```
 
 The outstation is described by a model: its link address, its points with their initial values and event classes, its controls and its files.
@@ -685,9 +706,11 @@ What it does:
 
 - **Answers** integrity, event and class polls and reads of every point type, in any variation; keeps an **event buffer per master** that survives reconnects and is confirmed by the master.
 - **Reports unsolicited** the events of the classes a master enables, with confirmation and retries.
-- **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE; `status` answers every control with a refusal of your choice, to test a master.
+- **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE; `status` answers every control with a refusal of your choice, to test a master. An output with `command_event_class` reports every executed control as a **command event** (g13, g43) with the commanded value and the status.
+- **Serves times and intervals** (`time-and-interval` points, g50v4): a time with a repeat interval, such as a schedule, read by group and variation.
 - **Changes values by itself** where the model says `simulate` (`toggle`, `ramp`, `sine`, `random`, `count`), producing events of the point's class with the outstation's time.
 - **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes, device attributes, and file transfer with uploads.
+- **With Secure Authentication** challenges critical requests, accepts aggressive mode, and keeps the **security statistics** per master (g121, events g122 in class 1).
 
 Every event is written to stdout as it happens:
 
@@ -705,11 +728,13 @@ Every event is written to stdout as it happens:
 |---|---|
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
+| `--dial` | Connect to the master instead of listening, at `tcp://host[:port]` or `tls://host[:port]` (the dual end point), and connect again whenever the connection ends, after 1 s and up to 1 min between attempts. The event log starts with `dialing` |
 | `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time |
 | `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything; without it they start once a master has sent a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
 | `--tls-cert`, `--tls-key` | Serve TLS with this certificate |
 | `--tls-client-ca` | Require a client certificate of this CA (mutual TLS) |
+| `--tls-ca` | With a `tls://` `--dial`: verify the master's certificate against this CA (the system roots by default); `--tls-cert` and `--tls-key` are then the certificate presented to the master, and optional |
 | `--allow` | Only accept clients from these addresses or CIDR prefixes (TCP and TLS) |
 | `--max-sessions` | Maximum number of simultaneous connections (default 16) |
 | `--sa-update-key-file`, `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5, with session key change by this update key, or with this pre-shared session key (or `DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`) |
@@ -748,6 +773,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_CONFIG_FORMAT** | string | **server generate-config**: Format of the model: yaml or json | `--format` | yaml |
 | **DNP3CTL_CONTROL_TYPE** | string | **client operate**: Control: crob (control relay output block, g12v1) or analog (analog output block, g41) | `--type` |  |
 | **DNP3CTL_COUNT** | uint32 | **client read**: Read at most this many objects (events); cannot be combined with --range; **client monitor**: Stop after this many values (0 = until interrupted); **client ping**: Number of delay measurements before exiting (0 = until interrupted) | `--count` | 4 |
+| **DNP3CTL_DIAL** | string | **server start**: Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends | `--dial` |  |
 | **DNP3CTL_DATA_BITS** | uint8 | every client command, **server start**: Serial data bits, 5-8 (0 = 8) | `--data-bits` |  |
 | **DNP3CTL_DISCOVER_FORCE_LARGE** | bool | **discover**: Allow a scan of more hosts than the built-in safety cap | `--force-large-scan` |  |
 | **DNP3CTL_DURATION** | uint32 | **client monitor**, **server start**: Stop after this many seconds (0 = until interrupted) | `--duration` |  |
@@ -769,6 +795,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_LINK_TIMEOUT** | uint32 | every client command, **server start**: Wait in milliseconds for a link layer answer (0 = 2000) | `--link-timeout` |  |
 | **DNP3CTL_LISTEN** | string | **server start**: Address to listen on (TCP, TLS and UDP) | `--listen` |  |
 | **DNP3CTL_MASTER** | uint16 | every client command: Link address of this master; **discover**: Link address the probe is sent from | `--master` | 1 |
+| **DNP3CTL_MASTER_LISTEN** | string | Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip | `--listen` |  |
 | **DNP3CTL_MAX_SESSIONS** | uint16 | **server start**: Maximum number of simultaneous connections (0 = 16) | `--max-sessions` |  |
 | **DNP3CTL_NO_ACK** | bool | **client freeze**: Send the no-acknowledgement form (IMMED_FREEZE_NR, FREEZE_CLEAR_NR): no response | `--no-ack` |  |
 | **DNP3CTL_NO_RECONNECT** | bool | **client monitor**: Exit when the connection is lost instead of reconnecting | `--no-reconnect` |  |
@@ -788,12 +815,13 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_PERMISSIONS** | string | **client file put**: Permissions of the new file: octal (644) or rwx form (rw-r--r--) | `--permissions` |  |
 | **DNP3CTL_POLL_INTERVAL** | uint32 | **client monitor**: Also poll the events of classes 1-3 every this many seconds (0 = do not poll) | `--poll-interval` |  |
 | **DNP3CTL_POLL_MODE** | string | **client poll**: What to read: integrity (events of classes 1-3, then the static data of class 0), event (events of --class) or class (exactly the classes of --class, 0 included) | `--mode` | integrity |
-| **DNP3CTL_PORT** | uint16 | every client command: Outstation TCP port (used when --url is not set); **server start**: Port to listen on (0 = 20000, or 19999 with TLS) | `--port` | 20000 |
+| **DNP3CTL_PORT** | uint16 | every client command: Outstation TCP port (used when --url is not set), or the port of --listen; **server start**: Port to listen on (0 = 20000, or 19999 with TLS) | `--port` | 20000 |
 | **DNP3CTL_PORTS** | strings | **discover**: TCP ports to probe | `--ports` | [20000] |
 | **DNP3CTL_RANGE** | string | **client read**: Point indexes to read: a range (0-9), a list (1,4,7) or empty for all points; **client assign-class**, **client freeze**: Point indexes: a range (0-9), a list (1,4,7) or empty for all points | `--range` |  |
 | **DNP3CTL_RESPONSE_TIMEOUT** | uint32 | Wait in milliseconds for each fragment of a response (0 = 5000) | `--response-timeout` |  |
 | **DNP3CTL_RESTART_TYPE** | string | **client restart**: Restart: cold (full restart of the outstation) or warm (restart of the DNP3 application) | `--type` |  |
 | **DNP3CTL_RETRIES** | uint8 | Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes | `--retries` |  |
+| **DNP3CTL_SA_AGGRESSIVE** | bool | Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key | `--sa-aggressive` |  |
 | **DNP3CTL_SA_KEY_CHANGE_INTERVAL** | uint32 | Seconds between session key changes while connected, with an update key (0 = 900) | `--sa-key-change-interval` |  |
 | **DNP3CTL_SA_KEY_FILE** | string | every client command, **server start**: File holding the pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication | `--sa-key-file` |  |
 | **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
@@ -806,8 +834,8 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TIMEOUT** | uint32 | every client command: Timeout in milliseconds for connecting and for each request, retries included (0 = 10000); **discover**: Timeout in milliseconds per probe (0 = 1000) | `--timeout` |  |
 | **DNP3CTL_TIME_METHOD** | string | **client time-sync**: Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay) or write (the time of --time, without correction) | `--method` | lan |
 | **DNP3CTL_TLS** | bool | Use TLS with --ip (implied by a tls:// URL) | `--tls` |  |
-| **DNP3CTL_TLS_CA** | string | PEM file with the CA certificates to verify the outstation with (default: system roots) | `--tls-ca` |  |
-| **DNP3CTL_TLS_CERT** | string | every client command: PEM file with the own certificate (client authentication); **server start**: PEM file with the server certificate; with --tls-key it makes the server a TLS server | `--tls-cert` |  |
+| **DNP3CTL_TLS_CA** | string | every client command: PEM file with the CA certificates to verify the outstation with (default: system roots); **server start**: With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots) | `--tls-ca` |  |
+| **DNP3CTL_TLS_CERT** | string | every client command: PEM file with the own certificate (client authentication); **server start**: PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master) | `--tls-cert` |  |
 | **DNP3CTL_TLS_CLIENT_CA** | string | **server start**: PEM file with the CA certificates masters must present a certificate of (mutual TLS) | `--tls-client-ca` |  |
 | **DNP3CTL_TLS_INSECURE** | bool | Do not verify the outstation certificate (testing only) | `--tls-insecure` |  |
 | **DNP3CTL_TLS_KEY** | string | every client command, **server start**: PEM file with the private key of --tls-cert | `--tls-key` |  |
@@ -866,7 +894,7 @@ The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an 
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 
-Yes. `--url tls://host` (port 19999 by default) with `--tls-ca`, and `--tls-cert` / `--tls-key` for an outstation that wants a client certificate; the simulated outstation serves TLS with `--tls-cert` and `--tls-key`. Secure Authentication v5 works on both sides, with session key change by an update key (`--sa-update-key-file` or `DNP3CTL_SA_UPDATE_KEY`) or with a pre-shared session key (`--sa-key-file` or `DNP3CTL_SA_KEY`); the update key change, user management and aggressive mode are not implemented (see [SECURITY.md](SECURITY.md)).
+Yes. `--url tls://host` (port 19999 by default) with `--tls-ca`, and `--tls-cert` / `--tls-key` for an outstation that wants a client certificate; the simulated outstation serves TLS with `--tls-cert` and `--tls-key`. Secure Authentication v5 works on both sides, with session key change by an update key (`--sa-update-key-file` or `DNP3CTL_SA_UPDATE_KEY`) or with a pre-shared session key (`--sa-key-file` or `DNP3CTL_SA_KEY`); aggressive mode with `--sa-aggressive`, and `client read --object g121v1` shows the security statistics; the update key change and user management are not implemented (see [SECURITY.md](SECURITY.md)).
 
 ### Does it work on serial lines?
 

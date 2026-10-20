@@ -27,10 +27,14 @@ connected.
 Every command takes the outstation as --url (tcp://, tls://, udp://host[:port] or
 serial:///dev/ttyUSB0) or as --ip with --port, and the link addresses as --master (this
 master, default 1) and --outstation (default 10): they must match what the outstation is
-configured with, or it does not answer.
+configured with, or it does not answer. With --listen the master does not connect: it
+waits for the outstation to connect to it (the dual end point), on TCP or, with the TLS
+flags, as a TLS server.
 
-Secure Authentication v5 is enabled by a pre-shared key in --sa-key-file or the
-environment variable DNP3CTL_SA_KEY, as hex; the key is never accepted on the command line.`,
+Secure Authentication v5 is enabled by the update key in --sa-update-key-file (or
+DNP3CTL_SA_UPDATE_KEY), or by a pre-shared session key in --sa-key-file (or
+DNP3CTL_SA_KEY), as hex; keys are never accepted on the command line. --sa-aggressive
+sends critical requests in aggressive mode.`,
 	}
 	cmd.AddCommand(
 		newPollCmd(),

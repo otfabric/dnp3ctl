@@ -105,14 +105,19 @@ type UnsolicitedSpec struct {
 // PointSpec is one point of the database.
 type PointSpec struct {
 	// Type is binary-input, double-bit-input, binary-output, counter, frozen-counter,
-	// analog-input, frozen-analog-input, analog-output or octet-string.
+	// analog-input, frozen-analog-input, analog-output, octet-string or time-and-interval.
 	Type  string `yaml:"type" json:"type"`
 	Index uint32 `yaml:"index" json:"index"`
 	// Name describes the point. It is not sent: DNP3 carries no names.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// Value is the initial value: true/false (binary), off/on/intermediate/indeterminate
-	// (double-bit), a number, or text (octet string).
+	// (double-bit), a number, text (octet string), or an RFC 3339 time (time and interval).
 	Value any `yaml:"value" json:"value"`
+	// Interval and IntervalUnit are the interval of a time and interval (g50v4): a count
+	// of the unit, which is none (the default), milliseconds, seconds, minutes, hours, days,
+	// weeks, months, months-day, months-last or months-same.
+	Interval     uint32 `yaml:"interval,omitempty" json:"interval,omitempty"`
+	IntervalUnit string `yaml:"interval_unit,omitempty" json:"interval_unit,omitempty"`
 	// Flags lists the quality flags that are set. Default [ONLINE].
 	Flags []string `yaml:"flags,omitempty" json:"flags,omitempty"`
 	// Class is the event class 0-3 (0: no events). Default 0.
@@ -125,6 +130,12 @@ type PointSpec struct {
 	Deadband float64 `yaml:"deadband,omitempty" json:"deadband,omitempty"`
 	// ExcludeFromClass0 leaves the point out of class 0 responses.
 	ExcludeFromClass0 bool `yaml:"exclude_from_class0,omitempty" json:"exclude_from_class0,omitempty"`
+	// CommandEventClass, for binary and analog outputs, reports every executed control of
+	// the output's index as a command event (g13, g43) of this class 1-3, with the
+	// commanded state or value and the status. Default 0: none. CommandEventVariation
+	// selects the variation; 0 is g13v2 or g43v3 (with time).
+	CommandEventClass     uint8 `yaml:"command_event_class,omitempty" json:"command_event_class,omitempty"`
+	CommandEventVariation uint8 `yaml:"command_event_variation,omitempty" json:"command_event_variation,omitempty"`
 	// Simulate makes the value change by itself.
 	Simulate *SimSpec `yaml:"simulate,omitempty" json:"simulate,omitempty"`
 }
@@ -202,6 +213,7 @@ var pointTypes = map[string]server.PointType{
 	"frozen-analog-input": server.FrozenAnalogInput,
 	"analog-output":       server.AnalogOutput,
 	"octet-string":        server.OctetString,
+	"time-and-interval":   server.TimeAndInterval,
 }
 
 // PointTypeNames lists the point types of a model.
@@ -369,16 +381,19 @@ func (m *Model) Validate() error {
 		if p.Class > 3 {
 			bad("%s: class %d: use 0-3", what, p.Class)
 		}
+		for _, problem := range p.kindProblems(t) {
+			bad("%s: %s", what, problem)
+		}
 		if p.Deadband < 0 {
 			bad("%s: deadband cannot be negative", what)
 		}
-		if p.StaticVariation != 0 && !staticGroup(t, p.StaticVariation).Known() {
+		if p.StaticVariation != 0 && t != server.TimeAndInterval && !staticGroup(t, p.StaticVariation).Known() {
 			bad("%s: static_variation %d is not a variation of %s", what, p.StaticVariation, typeName(t))
 		}
-		if p.EventVariation != 0 && !eventGroup(t, p.EventVariation).Known() {
+		if p.EventVariation != 0 && t != server.TimeAndInterval && !eventGroup(t, p.EventVariation).Known() {
 			bad("%s: event_variation %d is not an event variation of %s", what, p.EventVariation, typeName(t))
 		}
-		if s := p.Simulate; s != nil {
+		if s := p.Simulate; s != nil && t != server.TimeAndInterval {
 			if err := s.validate(t); err != nil {
 				bad("%s: simulate: %v", what, err)
 			}
@@ -484,6 +499,37 @@ func (m *Model) Validate() error {
 		return nil
 	}
 	return fmt.Errorf("invalid model:\n  - %s", strings.Join(problems, "\n  - "))
+}
+
+// kindProblems returns what is wrong with the fields of p that only some point types take:
+// the interval of a time and interval, which has no class and no events, and the command
+// events of the outputs.
+func (p PointSpec) kindProblems(t server.PointType) []string {
+	var out []string
+	if t == server.TimeAndInterval {
+		if p.Class != 0 || p.EventVariation != 0 || p.Deadband != 0 {
+			out = append(out, "a time and interval has no events: leave out class, event_variation and deadband")
+		}
+		if p.StaticVariation != 0 && p.StaticVariation != 4 {
+			out = append(out, fmt.Sprintf("static_variation %d: a time and interval is g50v4", p.StaticVariation))
+		}
+		if p.Simulate != nil {
+			out = append(out, "a time and interval is not simulated: leave out simulate")
+		}
+	} else if p.Interval != 0 || p.IntervalUnit != "" {
+		out = append(out, "interval and interval_unit are for a time-and-interval")
+	}
+	command := map[server.PointType]uint8{server.BinaryOutput: 13, server.AnalogOutput: 43}
+	group, output := command[t]
+	switch {
+	case !output && (p.CommandEventClass != 0 || p.CommandEventVariation != 0):
+		out = append(out, "command_event_class and command_event_variation are for a binary-output or an analog-output")
+	case p.CommandEventClass > 3:
+		out = append(out, fmt.Sprintf("command_event_class %d: use 1-3, or 0 for none", p.CommandEventClass))
+	case p.CommandEventVariation != 0 && !app.GV(group, p.CommandEventVariation).Known():
+		out = append(out, fmt.Sprintf("command_event_variation %d is not a variation of g%d", p.CommandEventVariation, group))
+	}
+	return out
 }
 
 // staticGroup and eventGroup return the object of variation v of a point type.
@@ -626,6 +672,8 @@ func initialValue(t server.PointType, p PointSpec) (app.Value, error) {
 			return nil, fmt.Errorf("value %v is not a double-bit state: use off, on, intermediate or indeterminate", p.Value)
 		}
 		return app.DoubleBitBinary{Value: d, Flags: flags}, nil
+	case server.TimeAndInterval:
+		return timeAndInterval(p)
 	case server.OctetString:
 		s := fmt.Sprint(p.Value)
 		if p.Value == nil || s == "" || len(s) > 255 {
@@ -645,6 +693,33 @@ func initialValue(t server.PointType, p PointSpec) (app.Value, error) {
 		}
 		return app.Analog{Value: f, Flags: flags}, nil
 	}
+}
+
+// timeAndInterval returns the value of a time and interval: an RFC 3339 time, the
+// interval and its unit.
+func timeAndInterval(p PointSpec) (app.Value, error) {
+	var at time.Time
+	switch v := p.Value.(type) {
+	case time.Time: // YAML decodes an unquoted timestamp as a time
+		at = v
+	case string:
+		t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(v))
+		if err != nil {
+			return nil, fmt.Errorf("value %q is not a time: use RFC 3339, such as 2026-01-31T12:00:00Z", v)
+		}
+		at = t
+	default:
+		return nil, fmt.Errorf("value %v is not a time: use RFC 3339, such as 2026-01-31T12:00:00Z", p.Value)
+	}
+	unit := app.UnitNone
+	if p.IntervalUnit != "" {
+		u, ok := dnp.ParseIntervalUnit(p.IntervalUnit)
+		if !ok {
+			return nil, fmt.Errorf("interval_unit %q: use %s", p.IntervalUnit, strings.Join(dnp.IntervalUnitNames(), ", "))
+		}
+		unit = u
+	}
+	return app.AbsoluteTime{Time: app.TimestampOf(at), Interval: p.Interval, Units: unit}, nil
 }
 
 func boolValue(v any) (bool, bool) {

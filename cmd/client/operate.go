@@ -54,6 +54,9 @@ may or may not have been executed.`,
 
   # A 16-bit set-point, without waiting for a response
   dnp3ctl client operate --ip 192.168.1.20 --type analog --index 1 --value 1200 --variation 2 --mode direct-no-ack
+
+  # Secure Authentication with session key change; the OPERATE in aggressive mode
+  dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file rtu.key --sa-aggressive
 `,
 	}
 	cfg := config.OperateConfig{ConnConfig: connDefaults(), Mode: dnp.ModeSBO, Count: 1, OutputFormat: text}

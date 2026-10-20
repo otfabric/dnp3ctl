@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,7 @@ func TestFiltersClassesTimePermissions(t *testing.T) {
 
 func TestMeasurements(t *testing.T) {
 	ts := app.TimestampOf(time.Date(2026, 1, 2, 3, 4, 5, 6e6, time.UTC))
+	fifteen := uint32(15)
 	for _, c := range []struct {
 		m    client.Measurement
 		want types.Measurement
@@ -172,11 +174,13 @@ func TestMeasurements(t *testing.T) {
 		{client.Measurement{GV: app.OctetStringGV(110, 2), Value: app.OctetString{Data: []byte{0, 1}}},
 			types.Measurement{Object: "g110v2", Group: 110, Variation: 2, Type: "octet-string", Value: "0x0001"}},
 		{client.Measurement{GV: app.G121V1, Value: app.SecurityStatistic{Value: 3, Flags: app.FlagOnline}},
-			types.Measurement{Object: "g121v1", Group: 121, Variation: 1, Type: "security-statistic", Value: float64(3), Flags: "ONLINE"}},
+			types.Measurement{Object: "g121v1", Group: 121, Variation: 1, Type: "security-statistic", Value: float64(3), Flags: "ONLINE", Statistic: "unexpected messages"}},
+		{client.Measurement{GV: app.G50V4, Index: 2, Value: app.AbsoluteTime{Time: ts, Interval: 15, Units: app.UnitMinutes}},
+			types.Measurement{Object: "g50v4", Group: 50, Variation: 4, Type: "time-and-interval", Index: 2, Value: "2026-01-02T03:04:05.006Z", Interval: &fifteen, IntervalUnit: "minutes"}},
 		{client.Measurement{GV: app.G50V1, Value: app.AbsoluteTime{}},
 			types.Measurement{Object: "g50v1", Group: 50, Variation: 1, Type: "g50"}},
 	} {
-		if got := ToMeasurement(c.m); fmt.Sprint(got) != fmt.Sprint(c.want) {
+		if got := ToMeasurement(c.m); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("ToMeasurement(%v):\n got %+v\nwant %+v", c.m.GV, got, c.want)
 		}
 	}
@@ -293,7 +297,7 @@ func TestOptionsAndSecureAuth(t *testing.T) {
 	c := base()
 	c.Outstation = uint16(link.SelfAddress)
 	c.ResponseTimeout, c.Retries, c.Debug = 100, 2, true
-	if _, opts, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 7 {
+	if _, opts, _, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 7 {
 		t.Errorf("options: %d, %v", len(opts), err)
 	}
 
@@ -369,4 +373,62 @@ func TestKnownObjects(t *testing.T) {
 	if PointType(app.G50V1) != "g50" || PointType(app.G30V1) != "analog-input" {
 		t.Error("PointType")
 	}
+}
+
+func TestIntervalUnits(t *testing.T) {
+	if IntervalUnitText(app.UnitWeeks) != "weeks" || IntervalUnitText(app.IntervalUnit(42)) != "unit-42" {
+		t.Error("IntervalUnitText")
+	}
+	if u, ok := ParseIntervalUnit(" Months-Last "); !ok || u != app.UnitMonthsLast {
+		t.Errorf("ParseIntervalUnit: %v, %v", u, ok)
+	}
+	if _, ok := ParseIntervalUnit("fortnights"); ok {
+		t.Error("an unknown unit was accepted")
+	}
+	if names := IntervalUnitNames(); len(names) != 11 || names[0] != "none" || names[10] != "months-same" {
+		t.Errorf("IntervalUnitNames: %v", names)
+	}
+}
+
+func TestListenOptions(t *testing.T) {
+	dir := t.TempDir()
+	junk := filepath.Join(dir, "junk.pem")
+	_ = os.WriteFile(junk, []byte("junk"), 0o600)
+	for _, c := range []config.TLSConfig{
+		{TLS: true},
+		{Cert: junk},
+		{Cert: junk, Key: junk, Insecure: true},
+		{Cert: junk, Key: junk, ServerName: "rtu"},
+		{Cert: junk, Key: junk},
+	} {
+		if _, err := ListenTLS(c); err == nil {
+			t.Errorf("%+v was accepted", c)
+		}
+	}
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = free.Close()
+	cfg := &config.ConnConfig{Listen: free.Addr().String(), AddressConfig: config.AddressConfig{Master: 1, Outstation: 10}}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// An option the client refuses closes the listener again.
+	if _, err := Open(cfg, nil, client.WithResponseTimeout(-1)); err == nil {
+		t.Error("an invalid option was accepted")
+	}
+	s, err := Open(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := s.acceptor.Addr().String()
+	if err := s.Close(); err != nil {
+		t.Error(err)
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("the listener of a closed session is still open: %v", err)
+	}
+	_ = l.Close()
 }

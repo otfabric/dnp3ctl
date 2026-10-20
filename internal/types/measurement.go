@@ -20,19 +20,28 @@ type Measurement struct {
 	// Type is the kind of point: "binary-input", "double-bit-input", "binary-output",
 	// "binary-output-command", "counter", "frozen-counter", "analog-input",
 	// "frozen-analog-input", "analog-deadband", "analog-output", "analog-output-command",
-	// "octet-string", "security-statistic" or "iin".
+	// "octet-string", "time-and-interval", "security-statistic" or "iin".
 	Type  string `json:"type"`
 	Index uint32 `json:"index"`
 	// Event is set for an object of an event group.
 	Event bool `json:"event,omitempty"`
 	// Value is a boolean for binary points, a string for double-bit inputs ("off", "on",
-	// "intermediate", "indeterminate") and octet strings, and a number for everything else.
+	// "intermediate", "indeterminate"), octet strings and the time of a time and interval
+	// (RFC 3339 with milliseconds), and a number for everything else.
 	Value any `json:"value"`
 	// Flags are the quality flags that are set, joined with "|" ("ONLINE|RESTART"); empty
 	// when none is set. Omitted for objects without flags.
 	Flags string `json:"flags,omitempty"`
 	// Status is the command status of a command event.
 	Status string `json:"status,omitempty"`
+	// Interval and IntervalUnit are the interval of a time and interval (g50v4): a count of
+	// the unit ("none", "milliseconds", "seconds", "minutes", "hours", "days", "weeks",
+	// "months", "months-day", "months-last", "months-same").
+	Interval     *uint32 `json:"interval,omitempty"`
+	IntervalUnit string  `json:"interval_unit,omitempty"`
+	// Statistic names a security statistic ("authentication failures", "session key
+	// changes", ...).
+	Statistic string `json:"statistic,omitempty"`
 	// Timestamp is the time of the event or of the freeze (RFC 3339 with milliseconds), for
 	// the variations with time.
 	Timestamp string `json:"timestamp,omitempty"`
@@ -80,8 +89,8 @@ func (m Measurement) Line() string {
 	if m.Flags != "" {
 		_, _ = fmt.Fprintf(&b, "  [%s]", m.Flags)
 	}
-	if m.Status != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", m.Status)
+	if d := m.detail(); d != "" {
+		_, _ = fmt.Fprintf(&b, "  %s", d)
 	}
 	if m.Timestamp != "" {
 		_, _ = fmt.Fprintf(&b, "  @ %s", m.Timestamp)
@@ -89,15 +98,28 @@ func (m Measurement) Line() string {
 	return strings.TrimRight(b.String(), " ")
 }
 
+// detail renders what some objects carry besides value and flags: the status of a command
+// event, the interval of a time and interval, the name of a security statistic.
+func (m Measurement) detail() string {
+	var parts []string
+	if m.Status != "" {
+		parts = append(parts, m.Status)
+	}
+	if m.Interval != nil {
+		parts = append(parts, fmt.Sprintf("every %d %s", *m.Interval, m.IntervalUnit))
+	}
+	if m.Statistic != "" {
+		parts = append(parts, "("+m.Statistic+")")
+	}
+	return strings.Join(parts, " ")
+}
+
 // MeasurementHeaders are the table columns of a measurement.
 var MeasurementHeaders = []string{"OBJECT", "TYPE", "INDEX", "VALUE", "FLAGS", "TIME"}
 
 // Row renders the measurement as a table row matching [MeasurementHeaders].
 func (m Measurement) Row() []string {
-	flags := m.Flags
-	if m.Status != "" {
-		flags = strings.TrimPrefix(flags+" "+m.Status, " ")
-	}
+	flags := strings.TrimSpace(m.Flags + " " + m.detail())
 	return []string{m.Object, m.Type, strconv.FormatUint(uint64(m.Index), 10), m.ValueText(), orDash(flags), orDash(m.Timestamp)}
 }
 

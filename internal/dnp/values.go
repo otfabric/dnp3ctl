@@ -10,6 +10,7 @@ import (
 
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/client"
+	"github.com/otfabric/go-dnp3/secauth"
 
 	"github.com/otfabric/dnp3ctl/internal/types"
 )
@@ -109,6 +110,34 @@ func timeText(t app.Timestamp) string {
 	return t.Time().UTC().Format(timeLayout)
 }
 
+// intervalUnits are the interval units of a time and interval (g50v4), by code (IEEE
+// 1815-2012 Table 11-23).
+var intervalUnits = []string{"none", "milliseconds", "seconds", "minutes", "hours", "days", "weeks",
+	"months", "months-day", "months-last", "months-same"}
+
+// IntervalUnitNames lists the interval units of a time and interval in the order of their
+// codes.
+func IntervalUnitNames() []string { return append([]string(nil), intervalUnits...) }
+
+// IntervalUnitText names an interval unit; a code the standard does not define is
+// "unit-<code>".
+func IntervalUnitText(u app.IntervalUnit) string {
+	if int(u) < len(intervalUnits) {
+		return intervalUnits[u]
+	}
+	return fmt.Sprintf("unit-%d", u)
+}
+
+// ParseIntervalUnit returns the interval unit of a name of [IntervalUnitNames].
+func ParseIntervalUnit(name string) (app.IntervalUnit, bool) {
+	for i, n := range intervalUnits {
+		if strings.EqualFold(strings.TrimSpace(name), n) {
+			return app.IntervalUnit(i), true
+		}
+	}
+	return 0, false
+}
+
 // timeLayout is RFC 3339 with milliseconds, the time format of every result.
 const timeLayout = "2006-01-02T15:04:05.000Z07:00"
 
@@ -184,7 +213,13 @@ func ToMeasurement(m client.Measurement) types.Measurement {
 		out.Value = octetText(v.Data)
 	case app.SecurityStatistic:
 		out.Value, out.Timestamp = float64(v.Value), timeText(v.Time)
-		out.Flags = FlagsText(kind, v.Flags)
+		out.Flags, out.Statistic = FlagsText(kind, v.Flags), secauth.Statistic(m.Index).String()
+	case app.AbsoluteTime:
+		if m.GV == app.G50V4 {
+			interval := v.Interval
+			out.Type, out.Value = "time-and-interval", timeText(v.Time)
+			out.Interval, out.IntervalUnit = &interval, IntervalUnitText(v.Units)
+		}
 	default:
 		out.Value = nil
 	}

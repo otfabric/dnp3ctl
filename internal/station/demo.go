@@ -37,7 +37,9 @@ points:
     simulate: {mode: toggle, interval: 15s}
   - {type: binary-input, index: 2, name: Protection trip, value: false, class: 1}
   - {type: double-bit-input, index: 0, name: Disconnector, value: "on", class: 1}
-  - {type: binary-output, index: 0, name: Breaker control status, value: true, class: 1}
+  # "command_event_class" reports every executed control of an output as a command event
+  # (g13 for binary outputs, g43 for analog outputs) with the commanded value and status.
+  - {type: binary-output, index: 0, name: Breaker control status, value: true, class: 1, command_event_class: 1}
   - {type: binary-output, index: 1, name: Reclose blocked, value: false, class: 1}
   - type: counter
     index: 0
@@ -70,8 +72,22 @@ points:
     deadband: 10
     simulate: {mode: ramp, interval: 5s, min: 3500, max: 4500, step: 25}
   - {type: frozen-analog-input, index: 0, name: Active power at freeze (kW), value: 0}
-  - {type: analog-output, index: 0, name: Voltage set-point (kV), value: 11, class: 2, static_variation: 3}
+  - type: analog-output
+    index: 0
+    name: Voltage set-point (kV)
+    value: 11
+    class: 2
+    static_variation: 3
+    command_event_class: 2
   - {type: octet-string, index: 0, name: Feeder name, value: FEEDER-7}
+  # A time and interval (g50v4): a time with a repeat interval, such as a schedule. It has no
+  # events and is not in class 0: read it with "client read --object g50v4".
+  - type: time-and-interval
+    index: 0
+    name: Maintenance window
+    value: 2026-01-04T02:00:00Z
+    interval: 1
+    interval_unit: weeks
 
 # Outputs masters can operate. "target" is the point that takes the commanded value (by
 # default the output status of the same index); "select_required" refuses a direct operate.
