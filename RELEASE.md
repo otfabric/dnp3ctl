@@ -1,5 +1,23 @@
 # dnp3ctl Releases
 
+## v0.6.1
+
+**Date:** 2026-10-20  
+**Previous release:** v0.6.0
+
+### Summary
+
+dnp3ctl moves to [go-dnp3](https://github.com/otfabric/go-dnp3) v1.3.0, which generates its object table and the objects it reports as measurements from one catalog. Commands, flags and output are unchanged, except for the size `client objects` gives g86v2.
+
+### Changed
+
+- **`client objects`:** g86v2 (Data Set Descriptor - Characteristics) has size 1, the one octet IEEE 1815-2012 defines; it was listed as free-format (size 0). dnp3ctl does not read or write data sets, so nothing else changes.
+- go-dnp3 v1.3.0.
+
+### Upgrade notes
+
+- No breaking changes.
+
 ## v0.6.0
 
 **Date:** 2026-10-20  
