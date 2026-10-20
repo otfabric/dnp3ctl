@@ -24,7 +24,7 @@ It is built for commissioning and site acceptance tests, point-to-point checks, 
 - **Everything else a master does** — time synchronization (LAN and non-LAN), cold and warm restarts, enable and disable unsolicited, assign class, freeze and freeze-and-clear, device attributes, delay measurement.
 - **Files** — list the directories of an outstation, fetch disturbance records and logs, write and delete files (group 70).
 - **Find what is there** — `discover` sweeps subnets for outstations with a single link status request, and reports the link address each answers from.
-- **Simulate an RTU** — `server start` serves an outstation from a YAML model: values that change by themselves, event classes and buffers per master, unsolicited responses, controls with select-before-operate, restarts, attributes, files and uploads.
+- **Simulate an RTU** — `server start` serves an outstation from a YAML model: values that change by themselves, event classes and buffers per master, unsolicited responses, controls with select-before-operate, restarts, attributes, files and uploads; several outstations behind one port, serial line or UDP socket.
 - **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines, and the dual end point where the outstation connects to the master; Secure Authentication v5 with session key change or a pre-shared key, aggressive mode and security statistics.
 - **Script-friendly** — `--format text|json|table`, a single JSON error object on failure, stable exit codes and `DNP3CTL_*` environment variables.
 - **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/dnp3ctl/releases), with SHA-256 checksums; no runtime to install.
@@ -158,7 +158,7 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Files            | File transfer (group 70): list a directory, file info, fetch, write, append, delete; file authentication with credentials from a file or the environment. |
 | Objects          | List the groups and variations dnp3ctl encodes and decodes.                                                               |
 | Discover         | Find DNP3 outstations on subnets with a link status request (no application layer request) and report their link address. |
-| Server           | A simulated outstation from a YAML or JSON model: every point type, times and intervals (g50v4), event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, command events, restarts, time synchronization, device attributes and further attribute sets, scheduled freezes, files and uploads, simulated values; TCP, TLS, UDP or serial, listening or connecting to its master (`--dial`); allow-list; Secure Authentication with security statistics. |
+| Server           | A simulated outstation from a YAML or JSON model: every point type, times and intervals (g50v4), event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, command events, restarts, time synchronization, device attributes and further attribute sets, scheduled freezes, files and uploads, simulated values; several outstations at their own link addresses behind one port, serial line or UDP socket; TCP, TLS, UDP or serial, listening or connecting to its master (`--dial`); allow-list; Secure Authentication with security statistics. |
 | Transports       | TCP, TLS (IEEE 1815-2012 Annex B / IEC 62351-3) with server verification and client certificates, UDP and serial lines, selected with **`--url`**; the dual end point (annex A.3), where the master waits for the outstation to connect, with **`--listen`**. See [Connecting to an outstation](#connecting-to-an-outstation). |
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
 | Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
@@ -529,6 +529,9 @@ dnp3ctl client read --ip 192.168.1.20 --object g34v1
 
 # Times and intervals, such as a schedule (g50v4: not in class 0)
 dnp3ctl client read --ip 192.168.1.20 --object g50v4
+
+# BCD and unsigned integer points (g101, g102)
+dnp3ctl client read --ip 192.168.1.20 --object g101
 ```
 
 `dnp3ctl client objects` lists every object and variation; `--object` completes to them in the shell.
@@ -722,6 +725,10 @@ dnp3ctl server start --config outstation.yaml --serial /dev/ttyUSB0 --baud 19200
 # With Secure Authentication v5
 dnp3ctl server start --config outstation.yaml --sa-update-key-file outstation.update.key
 
+# Several outstations behind one port (multi-drop), each at the link address of its model
+dnp3ctl server start --config rtu10.yaml --config rtu11.yaml --config rtu12.yaml
+dnp3ctl client poll --ip 127.0.0.1 --outstation 11
+
 # Connect to the master instead of listening (dual end point), over TLS
 dnp3ctl server start --config outstation.yaml --dial tls://scada.example.net --tls-ca ca.pem --tls-cert rtu.pem --tls-key rtu.key
 ```
@@ -783,9 +790,11 @@ Every event is written to stdout as it happens:
 2026-10-20T00:06:21.669Z  disconnected      127.0.0.1:60893  dnp3: connection lost: closed by peer
 ```
 
+**Several outstations.** Give `--config` once per outstation (or comma-separated, or in `DNP3CTL_CONFIG`) and they are served together, behind the same port, serial line or UDP socket, as outstations on a multi-drop line are: each answers the requests to the link address of its model, keeps its own points, event buffers and controls, and a broadcast reaches all of them. Two models with the same link address are refused. Events of one outstation name its link address (`[11]` in text, `outstation` in JSON, the OUTSTATION column of the table); `listening` lists them all. `--dial` and `--udp-peer` serve a single outstation.
+
 | Flag | Meaning |
 |---|---|
-| `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served |
+| `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served. Repeat it (or separate files with commas) to serve several outstations, each at the link address of its model |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
 | `--dial` | Connect to the master instead of listening, at `tcp://host[:port]` or `tls://host[:port]` (the dual end point), and connect again whenever the connection ends, after 1 s and up to 1 min between attempts. The event log starts with `dialing` |
 | `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time |
@@ -834,7 +843,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_BLOCK_SIZE** | uint16 | **client file ls**, **client file get**, **client file put**, **client file rm**: Largest block to ask for or send, in octets (0 = the outstation chooses) | `--block-size` |  |
 | **DNP3CTL_BROADCAST** | string | **client operate**, **client freeze**: Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response | `--broadcast` |  |
 | **DNP3CTL_CLASS** | string | **client poll**: Classes for --mode event (1-3) or class (0-3), comma-separated (default 1,2,3); **client unsolicited enable**: Event classes, comma-separated, 1-3 (default all three) | `--class` |  |
-| **DNP3CTL_CONFIG** | string | **server start**: Outstation model file (YAML or JSON); without it a built-in demo outstation is served | `--config` |  |
+| **DNP3CTL_CONFIG** | strings | **server start**: Outstation model file (YAML or JSON); without it a built-in demo outstation is served. Give it several times (or comma-separated) to serve several outstations, each at its own link address, behind the same port, serial line or UDP socket | `--config` |  |
 | **DNP3CTL_CONFIG_FORMAT** | string | **server generate-config**: Format of the model: yaml or json | `--format` | yaml |
 | **DNP3CTL_CONTROL_TYPE** | string | **client operate**: Control: crob (control relay output block, g12v1) or analog (analog output block, g41) | `--type` |  |
 | **DNP3CTL_COUNT** | uint32 | **client read**: Read at most this many objects (events); cannot be combined with --range; **client monitor**: Stop after this many values (0 = until interrupted); **client ping**: Number of delay measurements before exiting (0 = until interrupted) | `--count` | 4 |

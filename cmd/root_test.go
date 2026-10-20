@@ -338,6 +338,69 @@ func TestServer(t *testing.T) {
 		(<-done).want(t, 0)
 	})
 
+	t.Run("several outstations behind one port", func(t *testing.T) {
+		first, second := filepath.Join(dir, "rtu10.yaml"), filepath.Join(dir, "rtu11.yaml")
+		_ = os.WriteFile(first, []byte(stationtest.Model), 0o600)
+		_ = os.WriteFile(second, []byte("outstation: {name: Second, address: 11}\npoints: [{type: binary-input, index: 0, value: false}, {type: counter, index: 0, value: 5}]\n"), 0o600)
+		for _, transport := range []string{"tcp", "udp"} {
+			t.Run(transport, func(t *testing.T) {
+				port := strconv.Itoa(int(stationtest.FreePort(t)))
+				args := []string{"server", "start", "--config", first, "--config", second, "--listen", "127.0.0.1", "--port", port, "--format", "json"}
+				target := []string{"--ip", "127.0.0.1", "--port", port}
+				if transport == "udp" {
+					args = append(args, "--udp")
+					target = []string{"--url", "udp://127.0.0.1:" + port}
+				}
+				// The event log is read while the server runs: a broadcast is not answered, so the
+				// test waits for both outstations to log it before stopping the server.
+				var stdout, stderr syncBuffer
+				ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+				defer stop()
+				done := make(chan result, 1)
+				go func() {
+					code := Run(ctx, args, &stdout, &stderr)
+					done <- result{stdout.String(), stderr.String(), code}
+				}()
+				frozen := func() map[float64]bool {
+					seen := map[float64]bool{}
+					for _, e := range (result{stdout: stdout.String()}).lines(t) {
+						if e["event"] == "request" && e["function"] == "IMMED_FREEZE_NR" {
+							seen[e["outstation"].(float64)] = true
+						}
+					}
+					return seen
+				}
+				eventually(t, "the server to answer", func() bool {
+					return run(t, append([]string{"client", "ping", "--count", "1", "--timeout", "300"}, target...)...).code == 0
+				})
+				// Each outstation answers at its own link address, with its own points.
+				var a, b types.PollResult
+				run(t, append([]string{"client", "poll", "--outstation", "10", "--format", "json"}, target...)...).want(t, 0).decode(t, &a)
+				run(t, append([]string{"client", "poll", "--outstation", "11", "--format", "json"}, target...)...).want(t, 0).decode(t, &b)
+				if a.Count != 12 || b.Count != 2 || b.Outstation != 11 {
+					t.Errorf("outstation 10: %d values, outstation 11: %d values", a.Count, b.Count)
+				}
+				run(t, append([]string{"client", "poll", "--outstation", "12", "--timeout", "1000", "--response-timeout", "300"}, target...)...).want(t, 5)
+				// A broadcast reaches both.
+				run(t, append([]string{"client", "freeze", "--broadcast", "no-confirm", "--no-ack"}, target...)...).want(t, 0)
+				eventually(t, "both outstations to log the broadcast freeze", func() bool {
+					seen := frozen()
+					return seen[10] && seen[11]
+				})
+				stop()
+				r := (<-done).want(t, 0)
+				for _, e := range r.lines(t) {
+					if e["event"] == "listening" && !strings.Contains(e["detail"].(string), "Test outstation, link address 10; Second, link address 11") {
+						t.Errorf("listening: %v", e)
+					}
+				}
+			})
+		}
+		run(t, "server", "start", "--config", first+", ,"+first).want(t, 3).errHas(t, "both have link address 10")
+		run(t, "server", "start", "--config", first, "--config", second, "--dial", "tcp://127.0.0.1:1").want(t, 3).errHas(t, "serve one outstation")
+		run(t, "server", "start", "--config", first, "--config", filepath.Join(dir, "missing.yaml")).want(t, 3)
+	})
+
 	t.Run("TLS and allow-list", func(t *testing.T) {
 		certs := stationtest.NewCerts(t)
 		port := strconv.Itoa(int(stationtest.FreePort(t)))

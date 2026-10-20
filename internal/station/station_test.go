@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	dnp3 "github.com/otfabric/go-dnp3"
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/client"
 	"github.com/otfabric/go-dnp3/link"
@@ -485,6 +486,50 @@ func TestSetAttributeWholeNumbers(t *testing.T) {
 	}
 }
 
+func TestFleet(t *testing.T) {
+	parse := func(model string) *Model {
+		m, err := Parse([]byte(model))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	a := parse("outstation: {address: 4}\npoints: [{type: binary-input, index: 0, value: true}]\n")
+	b := parse("outstation: {name: B, address: 5}\npoints: [{type: binary-input, index: 0, value: true}]\n")
+	l := &eventLog{}
+	f, err := NewFleet([]*Model{a, b}, Options{Log: l.log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Stations()) != 2 || f.Describe() != "outstation, link address 4; B, link address 5" {
+		t.Errorf("fleet: %s", f.Describe())
+	}
+	f.Stations()[1].event(types.ServerEvent{Event: "control"})
+	f.event(types.ServerEvent{Event: "listening"})
+	l.mu.Lock()
+	if len(l.events) != 2 || l.events[0].Outstation == nil || *l.events[0].Outstation != 5 || l.events[1].Outstation != nil {
+		t.Errorf("events: %+v", l.events)
+	}
+	l.mu.Unlock()
+	master, outstation := net.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- f.ServeConn(outstation, nil) }()
+	_ = master.Close()
+	if err := <-done; !errors.Is(err, dnp3.ErrConnectionLost) {
+		t.Errorf("ServeConn ended with %v, want the connection lost", err)
+	}
+	_ = f.Close()
+
+	// The same link address twice, or a model that does not build, is refused.
+	if _, err := NewFleet([]*Model{a, a}, Options{}); err == nil {
+		t.Error("two outstations at one address were accepted")
+	}
+	bad := parse("outstation: {attribute_sets: [{set: 1, attributes: {0: a}}]}\npoints: [{type: binary-input, index: 0, value: true}]\n")
+	if _, err := NewFleet([]*Model{a, bad}, Options{}); err == nil {
+		t.Error("an invalid model was accepted")
+	}
+}
+
 func TestNewRefusesInvalidAttributeSets(t *testing.T) {
 	m, err := Parse([]byte("outstation: {attribute_sets: [{set: 1, attributes: {0: a}}]}\npoints: [{type: binary-input, index: 0, value: true}]\n"))
 	if err != nil {
@@ -594,13 +639,13 @@ func TestRun(t *testing.T) {
 		st, l := newStation(t, simModel)
 		served := make(chan error, 1)
 		served <- errors.New("socket gone")
-		st.shutdown(served)
+		(&Fleet{stations: []*Station{st}}).shutdown(served)
 		if !l.has("stopping", "") || !l.has("error", "stopping: socket gone") {
 			t.Errorf("events: %+v", l.events)
 		}
 	})
 	t.Run("invalid", func(t *testing.T) {
-		err := Run(context.Background(), &config.ServerConfig{Config: "/nonexistent.yaml"}, nil, nil, nil)
+		err := Run(context.Background(), &config.ServerConfig{Config: []string{"/nonexistent.yaml"}}, nil, nil, nil)
 		if e, ok := errs.As(err); !ok || e.Code != errs.CodeInvalidConfig {
 			t.Errorf("missing model: %v", err)
 		}

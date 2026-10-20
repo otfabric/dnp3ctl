@@ -286,7 +286,7 @@ type ServerConfig struct {
 	LinkConfig
 	SerialConfig
 	AuthConfig
-	Config            string   `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served" flag:"config"`
+	Config            []string `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served. Give it several times (or comma-separated) to serve several outstations, each at its own link address, behind the same port, serial line or UDP socket" flag:"config"`
 	Listen            string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
 	Port              uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
 	UDP               bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`

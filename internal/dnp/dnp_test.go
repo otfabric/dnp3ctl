@@ -177,6 +177,10 @@ func TestMeasurements(t *testing.T) {
 			types.Measurement{Object: "g121v1", Group: 121, Variation: 1, Type: "security-statistic", Value: float64(3), Flags: "ONLINE", Statistic: "unexpected messages"}},
 		{client.Measurement{GV: app.G50V4, Index: 2, Value: app.AbsoluteTime{Time: ts, Interval: 15, Units: app.UnitMinutes}},
 			types.Measurement{Object: "g50v4", Group: 50, Variation: 4, Type: "time-and-interval", Index: 2, Value: "2026-01-02T03:04:05.006Z", Interval: &fifteen, IntervalUnit: "minutes"}},
+		{client.Measurement{GV: app.GV(101, 3), Index: 2, Value: app.BCD{Value: 9999999999999999}},
+			types.Measurement{Object: "g101v3", Group: 101, Variation: 3, Type: "bcd", Index: 2, Value: uint64(9999999999999999)}},
+		{client.Measurement{GV: app.GV(102, 1), Value: app.UnsignedInteger{Value: 200}},
+			types.Measurement{Object: "g102v1", Group: 102, Variation: 1, Type: "unsigned-integer", Value: float64(200)}},
 		{client.Measurement{GV: app.G50V1, Value: app.AbsoluteTime{}},
 			types.Measurement{Object: "g50v1", Group: 50, Variation: 1, Type: "g50"}},
 	} {
