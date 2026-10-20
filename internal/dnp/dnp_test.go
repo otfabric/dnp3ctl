@@ -331,6 +331,9 @@ func TestOptionsAndSecureAuth(t *testing.T) {
 	if _, err := SerialSettings("/dev/x", config.SerialConfig{Parity: "odd", DataBits: 9}); err == nil {
 		t.Error("9 data bits were accepted")
 	}
+	if _, _, err := UDPOpener("256.0.0.1:20000", 1)(context.Background()); err == nil {
+		t.Error("UDPOpener dialed an address that does not exist")
+	}
 	if Timeout(0) != DefaultTimeout || Timeout(5) != 5*time.Millisecond {
 		t.Error("Timeout")
 	}

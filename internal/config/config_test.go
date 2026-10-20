@@ -24,7 +24,7 @@ type sample struct {
 	List    []string `env:"T_LIST" flag:"list" desc:"a list"`
 	NoEnv   string   `flag:"no-env" desc:"without env"`
 	Hidden  string   // neither flag nor env
-	private string   `env:"T_PRIVATE"` //nolint:unused // proves unexported fields are skipped
+	private string   `env:"T_PRIVATE"`
 }
 
 type Inner struct {

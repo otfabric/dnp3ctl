@@ -54,6 +54,7 @@ type ConnConfig struct {
 	URL             string `env:"DNP3CTL_URL" desc:"Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port" flag:"url"`
 	IP              string `env:"DNP3CTL_IP" desc:"Outstation IP address or host name, over TCP (used when --url is not set)" flag:"ip"`
 	Port            uint16 `env:"DNP3CTL_PORT" desc:"Outstation TCP port (used when --url is not set)" flag:"port"`
+	UDPLocalPort    uint16 `env:"DNP3CTL_UDP_LOCAL_PORT" desc:"With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port" flag:"udp-local-port"`
 	Timeout         uint32 `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds for connecting and for each request, retries included (0 = 10000)" flag:"timeout"`
 	ResponseTimeout uint32 `env:"DNP3CTL_RESPONSE_TIMEOUT" desc:"Wait in milliseconds for each fragment of a response (0 = 5000)" flag:"response-timeout"`
 	Retries         uint8  `env:"DNP3CTL_RETRIES" desc:"Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes" flag:"retries"`

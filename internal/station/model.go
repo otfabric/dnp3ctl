@@ -257,7 +257,7 @@ var commandStatuses = func() map[string]app.CommandStatus {
 
 // Load reads a model from a YAML or JSON file and validates it.
 func Load(file string) (*Model, error) {
-	data, err := os.ReadFile(file) //nolint:gosec // the operator's own model file
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}

@@ -424,7 +424,7 @@ Every `dnp3ctl client` command takes the outstation as a URL, or as an address a
 |---|---|
 | `--url tcp://host[:port]` | DNP3 over TCP; port 20000 when omitted |
 | `--url tls://host[:port]` | DNP3 over TLS (IEEE 1815-2012 Annex B, IEC 62351-3); port 19999 when omitted |
-| `--url udp://host[:port]` | DNP3 over UDP; port 20000 when omitted |
+| `--url udp://host[:port]` | DNP3 over UDP; port 20000 when omitted. dnp3ctl sends from any free port unless `--udp-local-port` names one, for outstations that answer only a configured master endpoint (often port 20000) |
 | `--url serial:///dev/ttyUSB0` | A serial line (`serial://COM3` on Windows), with `--baud` (default 9600), `--data-bits` (8), `--parity` (`none`, `even`, `odd`) and `--stop-bits` (1) |
 | `--ip host [--port n]` | TCP on port 20000 or `n`; TLS when a `--tls…` flag is given |
 
@@ -702,7 +702,7 @@ Every event is written to stdout as it happens:
 |---|---|
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
-| `--udp` | Serve UDP instead of TCP (one master at a time) |
+| `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time, and it sends its first unsolicited response only after a master has sent it a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
 | `--tls-cert`, `--tls-key` | Serve TLS with this certificate |
 | `--tls-client-ca` | Require a client certificate of this CA (mutual TLS) |
@@ -808,6 +808,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TLS_SERVER_NAME** | string | Name to verify the outstation certificate against (default: the host) | `--tls-server-name` |  |
 | **DNP3CTL_UDP** | bool | **server start**: Serve DNP3 over UDP instead of TCP (one master at a time) | `--udp` |  |
 | **DNP3CTL_UNSOLICITED** | string | **client monitor**: Classes to enable unsolicited responses for after connecting, comma-separated, or none | `--unsolicited` | 1,2,3 |
+| **DNP3CTL_UDP_LOCAL_PORT** | uint16 | With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port | `--udp-local-port` |  |
 | **DNP3CTL_URL** | string | Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port | `--url` |  |
 | **DNP3CTL_VALUE** | string | **client operate**: Set-point value of an analog control | `--value` |  |
 | **DNP3CTL_VARIATION** | uint8 | **client operate**: Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise | `--variation` |  |

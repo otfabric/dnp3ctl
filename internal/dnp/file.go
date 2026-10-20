@@ -41,7 +41,7 @@ func filePassword(cfg config.FileAuthConfig) (string, error) {
 	case cfg.FilePasswordFile != "" && cfg.FilePassword != "":
 		return "", fmt.Errorf("--file-password-file and DNP3CTL_FILE_PASSWORD are mutually exclusive")
 	case cfg.FilePasswordFile != "":
-		data, err := os.ReadFile(cfg.FilePasswordFile) //nolint:gosec // a path the operator gave
+		data, err := os.ReadFile(cfg.FilePasswordFile)
 		if err != nil {
 			return "", fmt.Errorf("reading the file password: %w", err)
 		}
@@ -215,7 +215,7 @@ func FileGet(ctx context.Context, cfg *config.FileGetConfig, trace, content io.W
 	if cfg.Force {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	}
-	f, err := os.OpenFile(out, flags, 0o644) //nolint:gosec // the operator's own output file
+	f, err := os.OpenFile(out, flags, 0o644)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return nil, errs.InvalidInput(errs.CodeOutputFileCreateFailed, fmt.Sprintf("%s exists: pass --force to overwrite it", out), err)

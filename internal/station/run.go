@@ -235,8 +235,16 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 		return nil
 	case <-ctx.Done():
 	}
+	st.shutdown(served)
+	return nil
+}
+
+// shutdown closes the station and waits for the result of its Serve. Serve returns nil after
+// Close; anything else went wrong while stopping and is logged.
+func (st *Station) shutdown(served <-chan error) {
 	st.event(types.ServerEvent{Event: "stopping"})
 	_ = st.Close()
-	<-served
-	return nil
+	if err := <-served; err != nil {
+		st.event(types.ServerEvent{Event: "error", Detail: fmt.Sprintf("stopping: %v", err)})
+	}
 }

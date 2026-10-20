@@ -271,8 +271,22 @@ func TestServer(t *testing.T) {
 			return run(t, "client", "ping", "--count", "1", "--timeout", "300", "--url", url).code == 0
 		})
 		run(t, "client", "read", "--url", url, "--object", "g30", "--range", "0-1").want(t, 0).has(t, "udp://127.0.0.1:"+port, "11.02")
+		// A master that sends from a fixed port, as outstations configured with a master
+		// endpoint expect.
+		local := strconv.Itoa(int(stationtest.FreePort(t)))
+		run(t, "client", "read", "--url", url, "--object", "g1v2", "--udp-local-port", local).want(t, 0).has(t, "3 objects")
 		stop()
-		(<-done).want(t, 0).has(t, "listening", "udp://127.0.0.1:"+port)
+		r := (<-done).want(t, 0).has(t, "listening", "udp://127.0.0.1:"+port)
+		// The event log names the master the outstation answers, not its own socket.
+		remotes := map[string]bool{}
+		for _, line := range strings.Split(r.stdout, "\n") {
+			if f := strings.Fields(line); len(f) > 2 && f[1] == "request" {
+				remotes[f[2]] = true
+			}
+		}
+		if !remotes["127.0.0.1:"+local] || remotes["127.0.0.1:"+port] {
+			t.Errorf("remotes of the requests: %v\n%s", remotes, r.stdout)
+		}
 	})
 
 	t.Run("TLS and allow-list", func(t *testing.T) {
