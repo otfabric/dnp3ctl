@@ -289,6 +289,51 @@ func TestServer(t *testing.T) {
 		}
 	})
 
+	t.Run("UDP with a known master", func(t *testing.T) {
+		// With one configured master the outstation sends its null unsolicited response at
+		// once: --udp-peer tells it where, before the master has sent anything.
+		model := filepath.Join(dir, "udp-master.yaml")
+		_ = os.WriteFile(model, []byte(strings.Replace(stationtest.Model, "  address: 10\n", "  address: 10\n  masters: [1]\n", 1)), 0o600)
+		master, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = master.Close() }()
+		port := strconv.Itoa(int(stationtest.FreePort(t)))
+		ctx, stop := context.WithCancel(context.Background())
+		done := make(chan result, 1)
+		go func() {
+			done <- runCtx(t, ctx, "server", "start", "--config", model, "--listen", "127.0.0.1", "--port", port, "--udp", "--udp-peer", master.LocalAddr().String())
+		}()
+		_ = master.SetReadDeadline(time.Now().Add(5 * time.Second))
+		buf := make([]byte, 300)
+		n, from, err := master.ReadFrom(buf)
+		if err != nil || n < 10 || buf[0] != 0x05 || buf[1] != 0x64 || from.String() != "127.0.0.1:"+port {
+			t.Errorf("no link frame from the outstation: %d octets from %v, %v", n, from, err)
+		}
+		stop()
+		(<-done).want(t, 0).has(t, master.LocalAddr().String())
+	})
+
+	t.Run("secure authentication with key change", func(t *testing.T) {
+		keyFile := filepath.Join(dir, "update.key")
+		_ = os.WriteFile(keyFile, []byte(strings.Repeat("a5", 16)), 0o600)
+		port := strconv.Itoa(int(stationtest.FreePort(t)))
+		ctx, stop := context.WithCancel(context.Background())
+		done := make(chan result, 1)
+		go func() {
+			done <- runCtx(t, ctx, "server", "start", "--listen", "127.0.0.1", "--port", port, "--sa-update-key-file", keyFile)
+		}()
+		target := []string{"--ip", "127.0.0.1", "--port", port}
+		eventually(t, "the server to answer", func() bool {
+			return run(t, append([]string{"client", "ping", "--count", "1", "--timeout", "300"}, target...)...).code == 0
+		})
+		run(t, append([]string{"client", "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct"}, target...)...).want(t, 6)
+		run(t, append([]string{"client", "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--sa-update-key-file", keyFile}, target...)...).want(t, 0)
+		stop()
+		(<-done).want(t, 0)
+	})
+
 	t.Run("TLS and allow-list", func(t *testing.T) {
 		certs := stationtest.NewCerts(t)
 		port := strconv.Itoa(int(stationtest.FreePort(t)))
@@ -334,6 +379,8 @@ func TestServer(t *testing.T) {
 		run(t, "server", "start", "--tls-cert", bad, "--tls-key", bad).want(t, 3)
 		run(t, "server", "start", "--allow", "everyone").want(t, 3)
 		run(t, "server", "start", "--udp", "--allow", "10.0.0.1").want(t, 3)
+		run(t, "server", "start", "--udp-peer", "127.0.0.1:20000").want(t, 3).errHas(t, "needs --udp")
+		run(t, "server", "start", "--udp", "--udp-peer", "nowhere").want(t, 3)
 		run(t, "server", "start", "--serial", "/dev/null", "--udp").want(t, 3)
 		run(t, "server", "start", "--serial", "/dev/null", "--parity", "mark").want(t, 3)
 		run(t, "server", "start", "--sa-key-file", filepath.Join(dir, "missing.key")).want(t, 3)

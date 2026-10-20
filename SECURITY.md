@@ -41,13 +41,18 @@ Plain DNP3 carries no encryption, and without Secure Authentication no authentic
 
 ### Secure Authentication v5
 
-`dnp3ctl` implements Secure Authentication version 5 (IEEE 1815-2012 clause 7) with a **pre-shared session key**, through go-dnp3: the outstation challenges critical requests and the master answers with an HMAC over them.
+`dnp3ctl` implements Secure Authentication version 5 (IEEE 1815-2012 clause 7) through go-dnp3: the outstation challenges critical requests and the master answers with an HMAC over them. The session keys come from one of two places:
 
-- The key is read from `--sa-key-file` or `DNP3CTL_SA_KEY`, as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the file to the environment on shared hosts
-- The key must have at least 16 octets. The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
-- Interoperability: no other stack in the go-dnp3 interop suite runs SAv5 (opendnp3 3.x and Step Function I/O's dnp3 have none), so it is verified between go-dnp3's own master and outstation, and dnp3ctl against its simulated outstation. The challenge-reply MAC is computed over the challenge followed by the critical request, as other SAv5 implementations do; the key change procedures, where implementations are known to differ, are not implemented
-- Only the pre-shared mode is implemented: the session key change, update key change and user management procedures, and aggressive mode, are not. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
-- The simulated outstation verifies with the same key (`server start --sa-key-file`); it challenges the default critical function codes of go-dnp3 (controls, writes, restarts, freezes, assign class, opening and deleting files, among others)
+- **An update key** (recommended): the master negotiates fresh session keys with the session key change procedure, wrapped with the update key (AES-128 or AES-256 key wrap), on every connection and every `--sa-key-change-interval` seconds (default 15 minutes). The update key has 16 or 32 octets
+- **A pre-shared session key**: used directly for every challenge, for outstations without key change. It has at least 16 octets
+
+Keys are handled as follows:
+
+- They are read from files (`--sa-update-key-file`, `--sa-key-file`) or environment variables (`DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`), as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the files to the environment on shared hosts. Give one kind of key, not both
+- The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
+- Interoperability: no other stack in the go-dnp3 interop suite runs SAv5 (opendnp3 3.x and Step Function I/O's dnp3 have none), so it is verified between go-dnp3's own master and outstation, and dnp3ctl against its simulated outstation. The challenge-reply MAC is computed over the challenge followed by the critical request, as other SAv5 implementations do. In the session key change, go-dnp3's master sends the key status message with its MAC value, and its outstation accepts it with or without, as implementations differ
+- The update key change, user management and aggressive mode are not implemented. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
+- The simulated outstation verifies with the same key (`server start --sa-update-key-file` or `--sa-key-file`); it drops the session keys when a connection ends, and challenges the default critical function codes of go-dnp3 (controls, writes, restarts, freezes, assign class, opening and deleting files, among others)
 
 ### File Transfer Credentials
 

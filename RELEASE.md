@@ -1,5 +1,13 @@
 # dnp3ctl Releases
 
+## Unreleased
+
+- **go-dnp3 v0.2.0.**
+- **Secure Authentication session key change:** `--sa-update-key-file` or `DNP3CTL_SA_UPDATE_KEY` (16 or 32 octets, never a flag) on the client and `server start`, and `--sa-key-change-interval` on the client. The pre-shared session key (`--sa-key-file`, `DNP3CTL_SA_KEY`) still works; give one or the other.
+- **`server start --udp-peer host:port`:** the master's address, so that unsolicited responses reach it before it has sent anything. The UDP outstation no longer stops when a configured master's association writes before any master has spoken (go-dnp3 v0.2.0).
+
+---
+
 ## v0.2.0
 
 **Date:** 2026-10-20  

@@ -213,9 +213,24 @@ func (st *Station) Serve(l net.Listener) error { return st.srv.Serve(l) }
 // ServeUDP serves DNP3 over UDP on pc until Close. The outstation answers the endpoint
 // the last datagram came from, which the event log names as the remote.
 func (st *Station) ServeUDP(pc net.PacketConn) error {
+	return st.srv.ServeUDP(st.watchUDP(pc, nil))
+}
+
+// ServeUDPTo is ServeUDP with the master's address known from the start, so that
+// unsolicited responses reach it before it has sent anything.
+func (st *Station) ServeUDPTo(pc net.PacketConn, peer net.Addr) error {
+	return st.srv.ServeUDPTo(st.watchUDP(pc, peer), peer)
+}
+
+// watchUDP wraps the socket so that the event log can name the master, peer when known.
+func (st *Station) watchUDP(pc net.PacketConn, peer net.Addr) *peerConn {
 	pp := &peerConn{PacketConn: pc}
+	if peer != nil {
+		s := peer.String()
+		pp.peer.Store(&s)
+	}
 	st.udp.Store(pp)
-	return st.srv.ServeUDP(pp)
+	return pp
 }
 
 // peerConn records where the last datagram came from: go-dnp3 names a UDP channel by
