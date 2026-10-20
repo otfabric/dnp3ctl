@@ -526,6 +526,15 @@ func TestRun(t *testing.T) {
 			t.Log("ServeConn returned nil after the stream ended")
 		}
 	})
+	t.Run("an error while stopping is logged", func(t *testing.T) {
+		st, l := newStation(t, simModel)
+		served := make(chan error, 1)
+		served <- errors.New("socket gone")
+		st.shutdown(served)
+		if !l.has("stopping", "") || !l.has("error", "stopping: socket gone") {
+			t.Errorf("events: %+v", l.events)
+		}
+	})
 	t.Run("invalid", func(t *testing.T) {
 		err := Run(context.Background(), &config.ServerConfig{Config: "/nonexistent.yaml"}, nil, nil, nil)
 		if e, ok := errs.As(err); !ok || e.Code != errs.CodeInvalidConfig {
