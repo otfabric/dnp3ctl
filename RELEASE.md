@@ -1,10 +1,30 @@
 # dnp3ctl Releases
 
-## Unreleased
+## v0.3.0
 
-- **go-dnp3 v0.2.0.**
-- **Secure Authentication session key change:** `--sa-update-key-file` or `DNP3CTL_SA_UPDATE_KEY` (16 or 32 octets, never a flag) on the client and `server start`, and `--sa-key-change-interval` on the client. The pre-shared session key (`--sa-key-file`, `DNP3CTL_SA_KEY`) still works; give one or the other.
-- **`server start --udp-peer host:port`:** the master's address, so that unsolicited responses reach it before it has sent anything. The UDP outstation no longer stops when a configured master's association writes before any master has spoken (go-dnp3 v0.2.0).
+**Date:** 2026-10-20  
+**Previous release:** v0.2.0
+
+### Summary
+
+Secure Authentication with session key change, and a UDP outstation that can reach its master before the master speaks. Built on [go-dnp3](https://github.com/otfabric/go-dnp3) v0.2.0.
+
+### Highlights
+
+- **Secure Authentication session key change** (IEEE 1815-2012 clause 7.5.2.3): give dnp3ctl the outstation's **update key** with **`--sa-update-key-file`** or **`DNP3CTL_SA_UPDATE_KEY`** (16 octets for AES-128 key wrap, 32 for AES-256; hex; never accepted as a flag). On every connection the master negotiates fresh session keys wrapped with it, and again every **`--sa-key-change-interval`** seconds (default 900). `server start` accepts the same update key and verifies the key change. The pre-shared session key (`--sa-key-file`, `DNP3CTL_SA_KEY`) still works for outstations without key change; give one kind of key or the other.
+- **`server start --udp-peer host:port`** (`DNP3CTL_UDP_PEER`): the master's address, so that unsolicited responses reach it before it has sent anything. The event log names it from the start.
+
+### Fixed
+
+- **The UDP outstation stopped before any master spoke** when the model configured its masters: the first unsolicited write had no peer and ended the server (go-dnp3 v0.2.0).
+
+### Upgrade notes
+
+- No breaking changes. Existing pre-shared key configurations behave as before.
+
+### Quality
+
+- Whole-module statement coverage of **94.8%**; every changed line is covered. New end-to-end tests: SAv5 key change against the simulated outstation and through `server start` (right and wrong update key, conflicting key sources, invalid key lengths), and `--udp-peer` delivering the null unsolicited response before the master sends anything.
 
 ---
 
