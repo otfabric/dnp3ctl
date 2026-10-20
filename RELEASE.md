@@ -1,7 +1,8 @@
 # dnp3ctl Releases
 
-## v0.1.0 (unreleased)
+## v0.1.0
 
+**Date:** 2026-10-20  
 **Previous release:** none
 
 ### Summary

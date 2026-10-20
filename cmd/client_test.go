@@ -223,7 +223,9 @@ func TestOperate(t *testing.T) {
 		controls := func() int {
 			n := 0
 			for _, e := range st.Events() {
-				if e.Event == "control" || e.Event == "connected" {
+				// Requests and controls, not connections: a connection of an earlier
+				// subtest can be logged late.
+				if e.Event == "control" || e.Event == "request" {
 					n++
 				}
 			}
@@ -247,7 +249,7 @@ func TestOperate(t *testing.T) {
 			cli(t, st, append([]string{"operate"}, args...)...).want(t, 3)
 		}
 		if after := controls(); after != before {
-			t.Errorf("an invalid invocation reached the outstation: %d connections or controls", after-before)
+			t.Errorf("an invalid invocation reached the outstation: %d requests or controls", after-before)
 		}
 		run(t, "client", "operate", "--ip", "127.0.0.1", "--type", "crob").want(t, 2)
 	})
