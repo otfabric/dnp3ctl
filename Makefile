@@ -1,4 +1,4 @@
-.PHONY: help all run test coverage cover compile lint lint-ci fmt fmt-check vet vuln build build-nocheck build-all release-all install clean
+.PHONY: help all run test coverage cover compile cross lint lint-ci fmt fmt-check vet vuln build build-nocheck build-all release-all install clean
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -39,7 +39,7 @@ run: ## Run the application
 	@echo "Running $(APP_NAME)"
 	@go run $(APP_SRC)
 
-check: fmt fmt-check lint lint-ci vet vuln test coverage ## Run all checks (format, lint, vet, vulnerability scan, test, coverage)
+check: fmt fmt-check lint lint-ci vet cross vuln test coverage ## Run all checks (format, lint, vet, 32-bit build, vulnerability scan, test, coverage)
 
 test: ## Run unit tests with race detector
 	@echo "Running unit tests (race detector)"
@@ -60,6 +60,11 @@ cover: coverage ## Open coverage report in browser (run coverage first)
 compile: ## Typecheck entire module (catches redeclarations / same errors as gopls DuplicateDecl)
 	@echo "Typechecking all packages (go build ./...)"
 	@go build ./...
+
+cross: ## Typecheck the module, tests included, for 32-bit targets (linux/arm/v7 is a release target): int is 32 bits there
+	@echo "Typechecking for linux/arm/v7 and linux/386"
+	@GOOS=linux GOARCH=arm GOARM=7 go vet ./...
+	@GOOS=linux GOARCH=386 go vet ./...
 
 lint: compile ## Run staticcheck after full-module compile
 	@echo "Running staticcheck"

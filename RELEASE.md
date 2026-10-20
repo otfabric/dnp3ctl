@@ -29,6 +29,10 @@ dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.1.0 added
 - The simulated outstation refuses writes of device attributes of set 0 other than the user-assigned ones the model gives; it accepted every write before.
 - Docs name the DSC Systems library "DSC go-dnp3", as dnp3-interop does, and the interop note refers to dnp3-interop v0.4.1 (contract 1.3).
 
+### Fixed
+
+- **The linux/armv7 build:** a range check of the outstation model compared an `int` with 4294967295, which does not compile where `int` has 32 bits; whole numbers that do not fit an `int` on such platforms are now accepted as well. `make check` now typechecks for 32-bit targets (`make cross`).
+
 ### Upgrade notes
 
 - No breaking changes to commands, flags or JSON output; the JSON gains `broadcast`, `interval`, `set`, `attribute`, `append`, `function` and `value` fields where they apply, and `client operate` gains `controls` (and `error` for a partial result).

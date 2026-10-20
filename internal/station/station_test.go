@@ -465,6 +465,26 @@ uploads: {accept: true, dir: up}
 
 // New builds only from a valid model; an invalid attribute set is refused even when the
 // model was not validated first.
+// Whole numbers reach the model as int, or as int64 and uint64 when they do not fit an int
+// (32-bit platforms) or an int64.
+func TestSetAttributeWholeNumbers(t *testing.T) {
+	for _, c := range []struct {
+		val  any
+		want string
+	}{
+		{int(7), "UINT"}, {int(-7), "INT"}, {int64(4294967295), "UINT"}, {int64(-2147483648), "INT"}, {uint64(4294967295), "UINT"},
+	} {
+		if a, err := setAttribute(1, c.val); err != nil || a.Type.String() != c.want {
+			t.Errorf("setAttribute(%T %v) = %v, %v; want %s", c.val, c.val, a.Type, err, c.want)
+		}
+	}
+	for _, val := range []any{int64(4294967296), int64(-2147483649), uint64(4294967296)} {
+		if _, err := setAttribute(1, val); err == nil {
+			t.Errorf("setAttribute(%T %v) was accepted", val, val)
+		}
+	}
+}
+
 func TestNewRefusesInvalidAttributeSets(t *testing.T) {
 	m, err := Parse([]byte("outstation: {attribute_sets: [{set: 1, attributes: {0: a}}]}\npoints: [{type: binary-input, index: 0, value: true}]\n"))
 	if err != nil {

@@ -642,6 +642,18 @@ var indicationBits = map[string]app.IIN{
 	"config-corrupt": app.IINConfigCorrupt,
 }
 
+// wholeAttribute is a whole number as an attribute: UINT from 0 to 4294967295, INT when
+// negative down to -2147483648.
+func wholeAttribute(n int64) (app.Attribute, bool) {
+	switch {
+	case n >= 0 && n <= math.MaxUint32:
+		return app.UintAttribute(uint32(n)), true
+	case n < 0 && n >= math.MinInt32:
+		return app.IntAttribute(int32(n)), true
+	}
+	return app.Attribute{}, false
+}
+
 // writable returns the writable variations of a validated set.
 func (as AttributeSetSpec) writable() []uint8 {
 	out := make([]uint8, 0, len(as.Writable))
@@ -660,11 +672,17 @@ func setAttribute(v uint8, val any) (app.Attribute, error) {
 		}
 		return app.StringAttribute(x), nil
 	case int:
-		switch {
-		case x >= 0 && x <= math.MaxUint32:
+		if a, ok := wholeAttribute(int64(x)); ok {
+			return a, nil
+		}
+	case int64:
+		// A whole number beyond int, on 32-bit platforms.
+		if a, ok := wholeAttribute(x); ok {
+			return a, nil
+		}
+	case uint64:
+		if x <= math.MaxUint32 {
 			return app.UintAttribute(uint32(x)), nil
-		case x < 0 && x >= math.MinInt32:
-			return app.IntAttribute(int32(x)), nil
 		}
 	case float64:
 		return app.FloatAttribute(x), nil
