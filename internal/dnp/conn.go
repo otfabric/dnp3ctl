@@ -65,34 +65,56 @@ var MACAlgorithms = map[string]app.MACAlgorithm{
 	"hmac-sha1-8":    app.MACHMACSHA1Trunc8,
 }
 
-// SecureAuthUser returns the Secure Authentication user of cfg, or nil when secure
-// authentication is not configured. The key comes from --sa-key-file or DNP3CTL_SA_KEY, as
-// hex; it is never accepted on the command line.
-func SecureAuthUser(cfg config.AuthConfig) (*secauth.User, error) {
-	raw := strings.TrimSpace(cfg.SAKey)
+// readKey returns the key of a file or an environment variable, as hex; name describes it
+// in errors, and the two sources are named by fileFlag and envVar. An empty result means
+// neither is set.
+func readKey(file, env, name, fileFlag, envVar string) ([]byte, error) {
+	raw := strings.TrimSpace(env)
 	switch {
-	case cfg.SAKeyFile != "" && raw != "":
-		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-file and DNP3CTL_SA_KEY are mutually exclusive", nil)
-	case cfg.SAKeyFile != "":
-		data, err := os.ReadFile(cfg.SAKeyFile)
+	case file != "" && raw != "":
+		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("%s and %s are mutually exclusive", fileFlag, envVar), nil)
+	case file != "":
+		data, err := os.ReadFile(file)
 		if err != nil {
-			return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("reading the secure authentication key: %v", err), err)
+			return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("reading the %s: %v", name, err), err)
 		}
 		raw = strings.TrimSpace(string(data))
 	case raw == "":
-		if cfg.SAMAC != "" {
-			return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-mac needs a key: set --sa-key-file or DNP3CTL_SA_KEY", nil)
-		}
 		return nil, nil
 	}
 	key, err := hex.DecodeString(strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimPrefix(raw, "0x"), "0X")), ""))
 	if err != nil || len(key) == 0 {
-		return nil, errs.InvalidInput(errs.CodeInvalidKey, "the secure authentication key must be hex, for example 32 hex digits for a 16-octet key", err)
+		return nil, errs.InvalidInput(errs.CodeInvalidKey, fmt.Sprintf("the %s must be hex, for example 32 hex digits for a 16-octet key", name), err)
 	}
-	if len(key) < 16 {
+	return key, nil
+}
+
+// SecureAuthUser returns the Secure Authentication user of cfg, or nil when secure
+// authentication is not configured. The keys come from files or environment variables, as
+// hex; they are never accepted on the command line.
+func SecureAuthUser(cfg config.AuthConfig) (*secauth.User, error) {
+	key, err := readKey(cfg.SAKeyFile, cfg.SAKey, "secure authentication key", "--sa-key-file", "DNP3CTL_SA_KEY")
+	if err != nil {
+		return nil, err
+	}
+	update, err := readKey(cfg.SAUpdateKeyFile, cfg.SAUpdateKey, "secure authentication update key", "--sa-update-key-file", "DNP3CTL_SA_UPDATE_KEY")
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case key != nil && update != nil:
+		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "give a pre-shared session key or an update key, not both", nil)
+	case key == nil && update == nil:
+		if cfg.SAMAC != "" {
+			return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-mac needs a key: set --sa-update-key-file or --sa-key-file (or their environment variables)", nil)
+		}
+		return nil, nil
+	case key != nil && len(key) < 16:
 		return nil, errs.InvalidInput(errs.CodeInvalidKey, fmt.Sprintf("the secure authentication key has %d octets: use at least 16", len(key)), nil)
+	case update != nil && len(update) != 16 && len(update) != 32:
+		return nil, errs.InvalidInput(errs.CodeInvalidKey, fmt.Sprintf("the secure authentication update key has %d octets: use 16 (AES-128) or 32 (AES-256)", len(update)), nil)
 	}
-	user := secauth.User{Number: cfg.SAUser, Key: key}
+	user := secauth.User{Number: cfg.SAUser, Key: key, UpdateKey: update}
 	if user.Number == 0 {
 		user.Number = 1
 	}
@@ -280,8 +302,14 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 	if err != nil {
 		return target, nil, err
 	}
+	if cfg.SAKeyChange != 0 && (user == nil || user.UpdateKey == nil) {
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-change-interval needs an update key: set --sa-update-key-file or DNP3CTL_SA_UPDATE_KEY", nil)
+	}
 	if user != nil {
 		opts = append(opts, client.WithSecureAuthentication(*user))
+	}
+	if cfg.SAKeyChange != 0 {
+		opts = append(opts, client.WithKeyChangeInterval(time.Duration(cfg.SAKeyChange)*time.Second))
 	}
 	if cfg.Debug && trace != nil {
 		opts = append(opts, client.WithMetrics(&Tracer{W: trace}))

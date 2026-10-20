@@ -28,14 +28,17 @@ type LinkConfig struct {
 	KeepAlive     uint32 `env:"DNP3CTL_KEEP_ALIVE" desc:"Idle seconds after which REQUEST_LINK_STATUS is sent (0 = 60)" flag:"keep-alive"`
 }
 
-// AuthConfig holds the Secure Authentication v5 settings (pre-shared session key). The key
-// is never given on the command line: it is read from --sa-key-file, or from the
-// environment variable DNP3CTL_SA_KEY, as hex.
+// AuthConfig holds the Secure Authentication v5 settings. A key is never given on the
+// command line: it is read from a file, or from an environment variable, as hex. With an
+// update key the session keys are negotiated by the session key change procedure; with a
+// session key that key is pre-shared and used directly.
 type AuthConfig struct {
-	SAKeyFile string `env:"DNP3CTL_SA_KEY_FILE" desc:"File holding the pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication" flag:"sa-key-file"`
-	SAUser    uint16 `env:"DNP3CTL_SA_USER" desc:"Secure authentication user number" flag:"sa-user"`
-	SAMAC     string `env:"DNP3CTL_SA_MAC" desc:"Secure authentication MAC algorithm: hmac-sha256-16 (default), hmac-sha256-8, hmac-sha1-10 or hmac-sha1-8" flag:"sa-mac"`
-	SAKey     string `env:"DNP3CTL_SA_KEY"` // hex; environment only, never a flag
+	SAKeyFile       string `env:"DNP3CTL_SA_KEY_FILE" desc:"File holding a pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication" flag:"sa-key-file"`
+	SAUpdateKeyFile string `env:"DNP3CTL_SA_UPDATE_KEY_FILE" desc:"File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change" flag:"sa-update-key-file"`
+	SAUser          uint16 `env:"DNP3CTL_SA_USER" desc:"Secure authentication user number" flag:"sa-user"`
+	SAMAC           string `env:"DNP3CTL_SA_MAC" desc:"Secure authentication MAC algorithm: hmac-sha256-16 (default), hmac-sha256-8, hmac-sha1-10 or hmac-sha1-8" flag:"sa-mac"`
+	SAKey           string `env:"DNP3CTL_SA_KEY"`        // hex; environment only, never a flag
+	SAUpdateKey     string `env:"DNP3CTL_SA_UPDATE_KEY"` // hex; environment only, never a flag
 }
 
 // AddressConfig holds the link addresses of a client.
@@ -57,6 +60,7 @@ type ConnConfig struct {
 	UDPLocalPort    uint16 `env:"DNP3CTL_UDP_LOCAL_PORT" desc:"With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port" flag:"udp-local-port"`
 	Timeout         uint32 `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds for connecting and for each request, retries included (0 = 10000)" flag:"timeout"`
 	ResponseTimeout uint32 `env:"DNP3CTL_RESPONSE_TIMEOUT" desc:"Wait in milliseconds for each fragment of a response (0 = 5000)" flag:"response-timeout"`
+	SAKeyChange     uint32 `env:"DNP3CTL_SA_KEY_CHANGE_INTERVAL" desc:"Seconds between session key changes while connected, with an update key (0 = 900)" flag:"sa-key-change-interval"`
 	Retries         uint8  `env:"DNP3CTL_RETRIES" desc:"Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes" flag:"retries"`
 	Debug           bool   // set from global --debug (root persistent flag)
 }
@@ -246,6 +250,7 @@ type ServerConfig struct {
 	Listen       string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
 	Port         uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
 	UDP          bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
+	UDPPeer      string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
 	Serial       string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
 	Cert         string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server" flag:"tls-cert"`
 	Key          string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`

@@ -671,4 +671,38 @@ func TestSecureAuthentication(t *testing.T) {
 	t.Setenv("DNP3CTL_SA_KEY", hex.EncodeToString(key))
 	cli(t, st, "poll", "--sa-mac", "md5").want(t, 3)
 	cli(t, st, "poll", "--sa-key-file", "", "--sa-user", "0").want(t, 0)
+	cli(t, st, "poll", "--sa-key-change-interval", "60").want(t, 3).errHas(t, "needs an update key")
+}
+
+// With an update key the session keys are negotiated by the session key change procedure.
+func TestSecureAuthenticationKeyChange(t *testing.T) {
+	update := bytes.Repeat([]byte{0x3c}, 32)
+	st := stationtest.Start(t, stationtest.Model, func(o *station.Options) { o.Auth = &secauth.User{Number: 1, UpdateKey: update} })
+	dir := t.TempDir()
+	updateFile := filepath.Join(dir, "update.key")
+	_ = os.WriteFile(updateFile, []byte(hex.EncodeToString(update)), 0o600)
+
+	cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "sbo", "--sa-update-key-file", updateFile, "--sa-key-change-interval", "60").
+		want(t, 0).has(t, "SUCCESS")
+	t.Setenv("DNP3CTL_SA_UPDATE_KEY", hex.EncodeToString(update))
+	cli(t, st, "restart", "--type", "warm").want(t, 0)
+	cli(t, st, "poll", "--sa-update-key-file", updateFile).want(t, 3).errHas(t, "mutually exclusive")
+	t.Setenv("DNP3CTL_SA_KEY", hex.EncodeToString(update))
+	cli(t, st, "poll").want(t, 3).errHas(t, "not both")
+	t.Setenv("DNP3CTL_SA_KEY", "")
+
+	// A wrong update key fails the key change, and with it every critical request.
+	t.Setenv("DNP3CTL_SA_UPDATE_KEY", hex.EncodeToString(bytes.Repeat([]byte{0x11}, 32)))
+	kind, code := cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-off", "--mode", "direct", "--format", "json").want(t, 6).errorCode(t)
+	if kind != "refused" || code != "authentication_failed" {
+		t.Errorf("wrong update key: %s/%s", kind, code)
+	}
+	for _, k := range []string{"0011", strings.Repeat("00", 20), "zz"} {
+		t.Setenv("DNP3CTL_SA_UPDATE_KEY", k)
+		if _, code := cli(t, st, "poll", "--format", "json").want(t, 3).errorCode(t); code != "invalid_key" {
+			t.Errorf("update key %q: %s", k, code)
+		}
+	}
+	t.Setenv("DNP3CTL_SA_UPDATE_KEY", "")
+	cli(t, st, "poll", "--sa-update-key-file", filepath.Join(dir, "missing")).want(t, 3)
 }

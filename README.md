@@ -25,7 +25,7 @@ It is built for commissioning and site acceptance tests, point-to-point checks, 
 - **Files** — list the directories of an outstation, fetch disturbance records and logs, write and delete files (group 70).
 - **Find what is there** — `discover` sweeps subnets for outstations with a single link status request, and reports the link address each answers from.
 - **Simulate an RTU** — `server start` serves an outstation from a YAML model: values that change by themselves, event classes and buffers per master, unsolicited responses, controls with select-before-operate, restarts, attributes, files and uploads.
-- **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines; Secure Authentication v5 with a pre-shared key.
+- **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines; Secure Authentication v5 with session key change or a pre-shared key.
 - **Script-friendly** — `--format text|json|table`, a single JSON error object on failure, stable exit codes and `DNP3CTL_*` environment variables.
 - **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/dnp3ctl/releases), with SHA-256 checksums; no runtime to install.
 
@@ -159,7 +159,7 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Server           | A simulated outstation from a YAML or JSON model: every point type, event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, restarts, time synchronization, device attributes, files and uploads, simulated values; TCP, TLS, UDP or serial; allow-list; Secure Authentication. |
 | Transports       | TCP, TLS (IEEE 1815-2012 Annex B / IEC 62351-3) with server verification and client certificates, UDP and serial lines, selected with **`--url`**. See [Connecting to an outstation](#connecting-to-an-outstation). |
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
-| Secure Authentication | SAv5 with a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1. |
+| Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1. |
 | Robustness       | Timeouts per fragment and per request, retries of the requests that are safe to repeat (never controls), reconnects in `monitor`. |
 | `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. |
 | `--debug`        | Trace every link frame and application fragment sent and received, decoded, to stderr.                                   |
@@ -448,17 +448,20 @@ Every `dnp3ctl client` command takes the outstation as a URL, or as an address a
 dnp3ctl client poll --url tls://rtu.example.net --tls-ca ca.pem --tls-cert scada.pem --tls-key scada.key
 ```
 
-**Secure Authentication v5.** An outstation that runs SAv5 challenges critical requests. Give dnp3ctl the pre-shared session key as hex, in a file or in the environment; it is **never** accepted on the command line, where it would end up in the shell history and the process list.
+**Secure Authentication v5.** An outstation that runs SAv5 challenges critical requests. Give dnp3ctl its **update key**, with which dnp3ctl negotiates the session keys (session key change), or, for an outstation without key change, a **pre-shared session key**. Keys are hex, in a file or in the environment; they are **never** accepted on the command line, where they would end up in the shell history and the process list. Give one kind of key, not both.
 
 | Flag / variable | Meaning |
 |---|---|
-| `--sa-key-file` | File holding the key as hex (whitespace and a `0x` prefix are ignored); at least 16 octets |
-| `DNP3CTL_SA_KEY` | The key as hex, instead of a file |
+| `--sa-update-key-file` | File holding the update key as hex (whitespace and a `0x` prefix are ignored); 16 octets (AES-128 key wrap) or 32 (AES-256) |
+| `DNP3CTL_SA_UPDATE_KEY` | The update key as hex, instead of a file |
+| `--sa-key-change-interval` | Seconds between session key changes while connected (default 900); with an update key only |
+| `--sa-key-file` | File holding a pre-shared session key as hex; at least 16 octets |
+| `DNP3CTL_SA_KEY` | The pre-shared session key as hex, instead of a file |
 | `--sa-user` | User number (default 1) |
 | `--sa-mac` | `hmac-sha256-16` (default), `hmac-sha256-8`, `hmac-sha1-10` or `hmac-sha1-8` |
 
 ```console
-dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-key-file /etc/dnp3/outstation10.key
+dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file /etc/dnp3/outstation10.update.key
 ```
 
 ### Common Commands
@@ -640,7 +643,7 @@ dnp3ctl server start --config outstation.yaml --udp
 dnp3ctl server start --config outstation.yaml --serial /dev/ttyUSB0 --baud 19200
 
 # With Secure Authentication v5
-dnp3ctl server start --config outstation.yaml --sa-key-file outstation.key
+dnp3ctl server start --config outstation.yaml --sa-update-key-file outstation.update.key
 ```
 
 The outstation is described by a model: its link address, its points with their initial values and event classes, its controls and its files.
@@ -702,13 +705,14 @@ Every event is written to stdout as it happens:
 |---|---|
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
-| `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time, and it sends its first unsolicited response only after a master has sent it a request |
+| `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time |
+| `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything; without it they start once a master has sent a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
 | `--tls-cert`, `--tls-key` | Serve TLS with this certificate |
 | `--tls-client-ca` | Require a client certificate of this CA (mutual TLS) |
 | `--allow` | Only accept clients from these addresses or CIDR prefixes (TCP and TLS) |
 | `--max-sessions` | Maximum number of simultaneous connections (default 16) |
-| `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5 with this key (or `DNP3CTL_SA_KEY`) |
+| `--sa-update-key-file`, `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5, with session key change by this update key, or with this pre-shared session key (or `DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`) |
 | `--link-confirmed`, `--link-timeout`, `--link-retries`, `--keep-alive` | As for the client |
 | `--duration` | Stop after this many seconds, for use in test pipelines |
 
@@ -720,7 +724,7 @@ The full reference of the model is in [docs/server-config.md](docs/server-config
 
 Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** (`--object` of `client read`, `--type` and `--index` of `client operate`, `--type` of `client restart`, `--path` of the file commands) must still be given on the command line. The global flag `--debug` has no environment variable.
 
-Two secrets are read **only** from the environment or a file, never from a flag: `DNP3CTL_SA_KEY` (the Secure Authentication key, as hex; or `--sa-key-file`) and `DNP3CTL_FILE_PASSWORD` (the password of `--file-user`; or `--file-password-file`).
+Three secrets are read **only** from the environment or a file, never from a flag: `DNP3CTL_SA_UPDATE_KEY` and `DNP3CTL_SA_KEY` (the Secure Authentication keys, as hex; or `--sa-update-key-file`, `--sa-key-file`) and `DNP3CTL_FILE_PASSWORD` (the password of `--file-user`; or `--file-password-file`).
 
 ```console
 export DNP3CTL_URL=tcp://192.168.1.20:20000
@@ -790,7 +794,9 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_RESPONSE_TIMEOUT** | uint32 | Wait in milliseconds for each fragment of a response (0 = 5000) | `--response-timeout` |  |
 | **DNP3CTL_RESTART_TYPE** | string | **client restart**: Restart: cold (full restart of the outstation) or warm (restart of the DNP3 application) | `--type` |  |
 | **DNP3CTL_RETRIES** | uint8 | Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes | `--retries` |  |
+| **DNP3CTL_SA_KEY_CHANGE_INTERVAL** | uint32 | Seconds between session key changes while connected, with an update key (0 = 900) | `--sa-key-change-interval` |  |
 | **DNP3CTL_SA_KEY_FILE** | string | every client command, **server start**: File holding the pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication | `--sa-key-file` |  |
+| **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
 | **DNP3CTL_SA_MAC** | string | every client command, **server start**: Secure authentication MAC algorithm: hmac-sha256-16 (default), hmac-sha256-8, hmac-sha1-10 or hmac-sha1-8 | `--sa-mac` |  |
 | **DNP3CTL_SA_USER** | uint16 | every client command, **server start**: Secure authentication user number | `--sa-user` | 1 |
 | **DNP3CTL_SERIAL** | string | **server start**: Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits | `--serial` |  |
@@ -808,11 +814,13 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TLS_SERVER_NAME** | string | Name to verify the outstation certificate against (default: the host) | `--tls-server-name` |  |
 | **DNP3CTL_UDP** | bool | **server start**: Serve DNP3 over UDP instead of TCP (one master at a time) | `--udp` |  |
 | **DNP3CTL_UNSOLICITED** | string | **client monitor**: Classes to enable unsolicited responses for after connecting, comma-separated, or none | `--unsolicited` | 1,2,3 |
+| **DNP3CTL_UDP_PEER** | string | **server start**: With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything | `--udp-peer` |  |
 | **DNP3CTL_UDP_LOCAL_PORT** | uint16 | With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port | `--udp-local-port` |  |
 | **DNP3CTL_URL** | string | Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port | `--url` |  |
 | **DNP3CTL_VALUE** | string | **client operate**: Set-point value of an analog control | `--value` |  |
 | **DNP3CTL_VARIATION** | uint8 | **client operate**: Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise | `--variation` |  |
 | **DNP3CTL_SA_KEY** | hex | Secure Authentication pre-shared session key (instead of `--sa-key-file`); environment only | — | |
+| **DNP3CTL_SA_UPDATE_KEY** | hex | Secure Authentication update key (instead of `--sa-update-key-file`); environment only | — | |
 | **DNP3CTL_FILE_PASSWORD** | string | Password of `--file-user` (instead of `--file-password-file`); environment only | — | |
 
 </details>
@@ -845,7 +853,7 @@ Run an integrity poll: `dnp3ctl client poll --ip 192.168.1.20 --outstation 10`. 
 
 - **The link addresses.** An outstation ignores frames for another link address, and many answer only the masters they are configured for: check `--outstation` and `--master`. `dnp3ctl discover --subnets <host> --outstations 1,2,3,4,10,65532` asks a list of addresses at the link layer.
 - **Is it DNP3 at all?** `discover` tells in a second, without any application layer request.
-- **Secure Authentication.** A control that fails with `authentication_failed` (exit code 6) needs the key: `--sa-key-file`.
+- **Secure Authentication.** A control that fails with `authentication_failed` (exit code 6) needs the key: `--sa-update-key-file` (or `--sa-key-file` for a pre-shared session key).
 - **What is on the wire.** `--debug` shows every link frame and application fragment in both directions.
 
 ### Why does a poll exit with code 7?
@@ -858,7 +866,7 @@ The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an 
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 
-Yes. `--url tls://host` (port 19999 by default) with `--tls-ca`, and `--tls-cert` / `--tls-key` for an outstation that wants a client certificate; the simulated outstation serves TLS with `--tls-cert` and `--tls-key`. Secure Authentication v5 works with a pre-shared session key (`--sa-key-file` or `DNP3CTL_SA_KEY`), on both sides; the key change procedures and aggressive mode are not implemented (see [SECURITY.md](SECURITY.md)).
+Yes. `--url tls://host` (port 19999 by default) with `--tls-ca`, and `--tls-cert` / `--tls-key` for an outstation that wants a client certificate; the simulated outstation serves TLS with `--tls-cert` and `--tls-key`. Secure Authentication v5 works on both sides, with session key change by an update key (`--sa-update-key-file` or `DNP3CTL_SA_UPDATE_KEY`) or with a pre-shared session key (`--sa-key-file` or `DNP3CTL_SA_KEY`); the update key change, user management and aggressive mode are not implemented (see [SECURITY.md](SECURITY.md)).
 
 ### Does it work on serial lines?
 

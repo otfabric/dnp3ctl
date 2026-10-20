@@ -78,6 +78,7 @@ type plan struct {
 	model *Model
 	opts  Options
 	allow []netip.Prefix
+	peer  net.Addr // the master of --udp-peer, or nil
 }
 
 func check(cfg *config.ServerConfig) (*plan, error) {
@@ -98,17 +99,27 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 		return nil, fmt.Errorf("--serial cannot be combined with --udp, --listen, --port, --allow or TLS")
 	case cfg.UDP && (tc != nil || len(allow) > 0):
 		return nil, fmt.Errorf("--udp cannot be combined with TLS or --allow")
+	case cfg.UDPPeer != "" && !cfg.UDP:
+		return nil, fmt.Errorf("--udp-peer needs --udp")
 	case cfg.Serial != "":
 		if _, err := dnp.SerialSettings(cfg.Serial, cfg.SerialConfig); err != nil {
 			return nil, err
 		}
+	}
+	var peer net.Addr
+	if cfg.UDPPeer != "" {
+		addr, err := net.ResolveUDPAddr("udp", cfg.UDPPeer)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --udp-peer %q: use host:port: %w", cfg.UDPPeer, err)
+		}
+		peer = addr
 	}
 	user, err := dnp.SecureAuthUser(cfg.AuthConfig)
 	if err != nil {
 		return nil, err
 	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
-	return &plan{model: m, allow: allow, opts: Options{
+	return &plan{model: m, allow: allow, peer: peer, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
 	}}, nil
 }
@@ -202,7 +213,11 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 		}
 		addr = pc.LocalAddr()
 		st.event(types.ServerEvent{Event: "listening", Remote: "udp://" + addr.String(), Detail: detail})
-		go func() { served <- st.ServeUDP(pc) }()
+		if p.peer != nil {
+			go func() { served <- st.ServeUDPTo(pc, p.peer) }()
+		} else {
+			go func() { served <- st.ServeUDP(pc) }()
+		}
 	default:
 		ln, err := net.Listen("tcp", listenAddr(cfg, p.opts.TLS != nil))
 		if err != nil {
