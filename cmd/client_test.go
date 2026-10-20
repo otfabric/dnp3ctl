@@ -214,10 +214,19 @@ func TestOperate(t *testing.T) {
 		if res.Status != "not-reported" {
 			t.Errorf("result %+v", res)
 		}
-		eventually(t, "the control to arrive", func() bool {
-			b, _ := value(server.BinaryOutput, 1).(app.Binary)
-			return b.Value
+		// Wait for the outstation to finish the request, not only for the value: it logs
+		// the control and the request after it has set the value.
+		eventually(t, "the control to be handled", func() bool {
+			for _, e := range st.Events() {
+				if e.Event == "request" && e.Function == "DIRECT_OPERATE_NR" {
+					return true
+				}
+			}
+			return false
 		})
+		if b, _ := value(server.BinaryOutput, 1).(app.Binary); !b.Value {
+			t.Error("the control did not set the output")
+		}
 	})
 	t.Run("nothing is sent when the input is wrong", func(t *testing.T) {
 		controls := func() int {
