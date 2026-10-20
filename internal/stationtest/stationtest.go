@@ -31,7 +31,9 @@ outstation:
   address: 10
   unsolicited: {enabled: true}
   restart_delay: 1s
-  attributes: {manufacturer: otfabric, product: test outstation, serial-number: SN-1}
+  attributes: {manufacturer: otfabric, product: test outstation, serial-number: SN-1, location: Bay 1}
+  attribute_sets:
+    - {set: 1, attributes: {1: feeder, 2: 42, 3: -5, 4: 1.5}, writable: [1, 2]}
 points:
   - {type: binary-input, index: 0, value: true, class: 1}
   - {type: binary-input, index: 1, value: false, class: 1, flags: [ONLINE, CHATTER_FILTER]}
@@ -40,7 +42,7 @@ points:
   - {type: binary-output, index: 1, value: false}
   - {type: counter, index: 0, value: 123456, class: 3}
   - {type: frozen-counter, index: 0, value: 0}
-  - {type: analog-input, index: 0, value: 230.5, class: 2, static_variation: 5}
+  - {type: analog-input, index: 0, value: 230.5, class: 2, static_variation: 5, deadband: 0.5}
   - {type: analog-input, index: 1, value: 42, class: 2, flags: [ONLINE, OVER_RANGE]}
   - {type: frozen-analog-input, index: 0, value: 0}
   - {type: analog-output, index: 0, value: 11, static_variation: 3}

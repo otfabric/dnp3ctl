@@ -51,7 +51,7 @@ stderr. Exit codes are stable: see docs/exitcodes.md.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().Bool("debug", false, "Trace every link frame and application fragment sent and received to stderr, and show the causes of an error")
+	root.PersistentFlags().Bool("debug", false, "Trace every link frame and application fragment sent and received, with go-dnp3's own log entries, to stderr, and show the causes of an error")
 	root.AddCommand(
 		client.NewCmd(),
 		server.NewCmd(),

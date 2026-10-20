@@ -277,7 +277,7 @@ func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*
 		if err != nil {
 			return err
 		}
-		o.Permissions = perm
+		o.Permissions, o.Append = perm, cfg.Append
 		n, err = s.WriteFile(ctx, cfg.Path, bytes.NewReader(data), uint32(len(data)), o)
 		return err
 	})
@@ -285,7 +285,7 @@ func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*
 		return nil, WrapError(err)
 	}
 	return &types.FileTransferResult{
-		Target: s.Target.String(), Outstation: s.Outstation, Direction: "upload", Path: cfg.Path, Local: cfg.Input,
+		Target: s.Target.String(), Outstation: s.Outstation, Direction: "upload", Path: cfg.Path, Local: cfg.Input, Append: cfg.Append,
 		Length: n, SHA256: checksum(data), DurationMs: ms(took),
 	}, nil
 }

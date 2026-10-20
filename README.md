@@ -145,18 +145,20 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Poll             | Integrity poll (events of classes 1-3, then class 0), event poll of chosen classes, or a poll of exactly the classes given; filters by object and index. |
 | Read             | READ of any object and variation, any variation (`g30`), ranges, index lists and counts (events).                         |
 | Monitor          | Stay connected and stream every value: unsolicited responses, and optional integrity and periodic event polls. Reconnects, filters, `--count` and `--duration`. |
-| Operate          | Control relay output blocks (latch on/off, pulse on/off, trip, close; count, on and off time) and analog output blocks (32-bit, 16-bit, single and double precision); select-before-operate, direct operate and direct operate without acknowledgement. |
+| Operate          | Control relay output blocks (latch on/off, pulse on/off, trip, close; count, on and off time) and analog output blocks (32-bit, 16-bit, single and double precision); select-before-operate, direct operate and direct operate without acknowledgement; several controls in one request; broadcast to every outstation on the channel. |
 | Time             | Time synchronization by the LAN procedure (RECORD_CURRENT_TIME), the non-LAN procedure (DELAY_MEASURE with delay compensation), or a plain write of a given time. |
 | Restart          | COLD_RESTART and WARM_RESTART, with the delay the outstation reports.                                                     |
 | Unsolicited      | ENABLE_UNSOLICITED and DISABLE_UNSOLICITED per class.                                                                     |
 | Assign class     | ASSIGN_CLASS of objects and ranges to an event class.                                                                     |
-| Freeze           | IMMED_FREEZE and FREEZE_CLEAR of counters or analog inputs, with or without acknowledgement.                              |
-| Attributes       | Device attributes (group 0): all, one by name or number, or the list of supported variations.                            |
+| Freeze           | IMMED_FREEZE and FREEZE_CLEAR of counters or analog inputs, with or without acknowledgement; FREEZE_AT_TIME at a time to come, repeated at an interval; broadcast. |
+| Attributes       | Device attributes (group 0) of the standard set or of any set the outstation defines: all, one by name or number, or the list of supported variations; write a writable attribute. |
+| Deadbands        | Read (g34) and write the deadbands of analog inputs.                                                                      |
+| Management       | INITIALIZE_DATA, INITIALIZE_APPL, START_APPL, STOP_APPL and SAVE_CONFIG; clear the DEVICE_RESTART indication.             |
 | Ping             | DELAY_MEASURE at an interval, with round trip and the outstation's processing delay.                                     |
-| Files            | File transfer (group 70): list a directory, file info, fetch, write, delete; file authentication with credentials from a file or the environment. |
+| Files            | File transfer (group 70): list a directory, file info, fetch, write, append, delete; file authentication with credentials from a file or the environment. |
 | Objects          | List the groups and variations dnp3ctl encodes and decodes.                                                               |
 | Discover         | Find DNP3 outstations on subnets with a link status request (no application layer request) and report their link address. |
-| Server           | A simulated outstation from a YAML or JSON model: every point type, times and intervals (g50v4), event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, command events, restarts, time synchronization, device attributes, files and uploads, simulated values; TCP, TLS, UDP or serial, listening or connecting to its master (`--dial`); allow-list; Secure Authentication with security statistics. |
+| Server           | A simulated outstation from a YAML or JSON model: every point type, times and intervals (g50v4), event classes and deadbands, event buffers per master, unsolicited responses, controls with select-before-operate and forced refusals, command events, restarts, time synchronization, device attributes and further attribute sets, scheduled freezes, files and uploads, simulated values; TCP, TLS, UDP or serial, listening or connecting to its master (`--dial`); allow-list; Secure Authentication with security statistics. |
 | Transports       | TCP, TLS (IEEE 1815-2012 Annex B / IEC 62351-3) with server verification and client certificates, UDP and serial lines, selected with **`--url`**; the dual end point (annex A.3), where the master waits for the outstation to connect, with **`--listen`**. See [Connecting to an outstation](#connecting-to-an-outstation). |
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
 | Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
@@ -180,8 +182,12 @@ dnp3ctl
 │   │   ├── enable       ENABLE_UNSOLICITED
 │   │   └── disable      DISABLE_UNSOLICITED
 │   ├── assign-class     ASSIGN_CLASS
-│   ├── freeze           IMMED_FREEZE / FREEZE_CLEAR
-│   ├── attributes       Device attributes (group 0)
+│   ├── freeze           IMMED_FREEZE / FREEZE_CLEAR / FREEZE_AT_TIME, or broadcast
+│   ├── attributes       Device attributes (group 0), of any set
+│   ├── write-attribute  Write a device attribute
+│   ├── write-deadband   Write the deadband of analog inputs (g34)
+│   ├── manage           Management functions (INITIALIZE_DATA, START_APPL, SAVE_CONFIG, …)
+│   ├── clear-restart    Clear the DEVICE_RESTART indication
 │   ├── ping             DELAY_MEASURE with round-trip time
 │   ├── file
 │   │   ├── ls           List a directory
@@ -380,6 +386,10 @@ dnp3ctl client unsolicited enable|disable
 dnp3ctl client assign-class
 dnp3ctl client freeze
 dnp3ctl client attributes
+dnp3ctl client write-attribute
+dnp3ctl client write-deadband
+dnp3ctl client manage
+dnp3ctl client clear-restart
 dnp3ctl client ping
 dnp3ctl client file ls|info|get|put|rm
 dnp3ctl client objects
@@ -514,6 +524,9 @@ dnp3ctl client read --ip 192.168.1.20 --object g32 --count 10
 # The frozen counters after a freeze
 dnp3ctl client read --ip 192.168.1.20 --object g21v5
 
+# The deadbands of the analog inputs (g34)
+dnp3ctl client read --ip 192.168.1.20 --object g34v1
+
 # Times and intervals, such as a schedule (g50v4: not in class 0)
 dnp3ctl client read --ip 192.168.1.20 --object g50v4
 ```
@@ -554,6 +567,10 @@ dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op trip --on-ti
 # Pulse an output three times: 200 ms on, 800 ms off
 dnp3ctl client operate --ip 192.168.1.20 --type crob --index 4 --op pulse-on --count 3 --on-time 200 --off-time 800
 
+# Several controls in one request: three outputs, or two set-points
+dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0,1,4 --op latch-on --mode direct
+dnp3ctl client operate --ip 192.168.1.20 --type analog --index 0,1 --value 11.2,230
+
 # Set-points: a float, and a 16-bit integer without waiting for an answer
 dnp3ctl client operate --ip 192.168.1.20 --type analog --index 0 --value 11.2
 dnp3ctl client operate --ip 192.168.1.20 --type analog --index 1 --value 1200 --variation 2 --mode direct-no-ack
@@ -569,6 +586,8 @@ Operate (sbo) g12v1 index 0: LATCH_ON on outstation 10 at tcp://192.168.1.20:200
 | `pulse-on`, `pulse-off` | PULSE_ON, PULSE_OFF with `--on-time`, `--off-time`, `--count` | a momentary output |
 | `close`, `trip` | PULSE_ON with trip-close code CLOSE or TRIP | a breaker with paired close and trip outputs on one index |
 | `nul` | NUL | test the path without operating anything |
+
+With several indexes the controls go in one request and the result lists a status for each. When a direct operate is refused for some of them, the others were executed: the result shows every status and the exit code is 7. With select-before-operate a refused SELECT ends the operation, so a refusal exits 6 and names every status.
 
 A control the outstation refuses ends with exit code 6 and the status it echoed (`NO_SELECT`, `LOCAL`, `NOT_SUPPORTED`, `OUT_OF_RANGE`, …). Everything is validated before anything is sent, and a control is sent exactly once, also with `--retries`: after a timeout (exit code 5) it may or may not have been executed.
 
@@ -594,6 +613,38 @@ dnp3ctl client assign-class --ip 192.168.1.20 --class 2 --object g30 --range 0-7
 # Freeze all counters; freeze and clear counters 0-3
 dnp3ctl client freeze --ip 192.168.1.20
 dnp3ctl client freeze --ip 192.168.1.20 --object g20 --range 0-3 --clear
+
+# Freeze at midnight and every hour from then on (FREEZE_AT_TIME)
+dnp3ctl client freeze --ip 192.168.1.20 --at 2026-02-01T00:00:00Z --interval 1h
+```
+
+#### Broadcast
+
+```console
+# Freeze the counters of every outstation on a serial line at the same moment
+dnp3ctl client freeze --url serial:///dev/ttyUSB0 --broadcast no-confirm --no-ack
+
+# Trip output 3 of every outstation, without answers
+dnp3ctl client operate --url serial:///dev/ttyUSB0 --type crob --index 3 --op trip --mode direct-no-ack --broadcast no-confirm
+```
+
+`--broadcast` sends the request to every outstation on the channel at one of the three broadcast addresses (`no-confirm`, `confirm` or `optional`: whether the outstations ask for an application confirmation). Nobody answers a broadcast, so the result reports the request as sent; each outstation executes it and sets IIN1.0 BROADCAST in its next response, which a poll shows. Controls need `--mode direct` or `direct-no-ack`: select-before-operate needs an answer.
+
+A broadcast cannot be combined with Secure Authentication, and dnp3ctl refuses the combination (exit code 3). An outstation running SAv5 discards a critical request sent to a broadcast address (a control, a freeze) unless it carries an aggressive mode MAC. That MAC covers an earlier challenge of the same connection, and every dnp3ctl command opens a connection of its own, so its broadcast would be discarded without a word.
+
+#### Management functions, restart indication and deadbands
+
+```console
+# Save the configuration, or stop the outstation's applications
+dnp3ctl client manage --ip 192.168.1.20 --function save-configuration
+dnp3ctl client manage --ip 192.168.1.20 --function stop-application
+
+# Clear DEVICE_RESTART after a restart (the one-shot commands leave it set)
+dnp3ctl client clear-restart --ip 192.168.1.20
+
+# Write the deadband of analog inputs 0-2, and read it back
+dnp3ctl client write-deadband --ip 192.168.1.20 --index 0,1,2 --value 0.5
+dnp3ctl client read --ip 192.168.1.20 --object g34 --range 0-2
 ```
 
 #### Device attributes and delay
@@ -605,6 +656,13 @@ dnp3ctl client attributes --ip 192.168.1.20 --variation serial-number
 
 # Which attributes does it support, and which are writable?
 dnp3ctl client attributes --ip 192.168.1.20 --variation list
+
+# An attribute set the outstation defines, and writing one of its attributes
+dnp3ctl client attributes --ip 192.168.1.20 --set 1
+dnp3ctl client write-attribute --ip 192.168.1.20 --set 1 --variation 2 --value 42 --data-type uint
+
+# Name the location of the outstation (a user-assigned attribute of set 0)
+dnp3ctl client write-attribute --ip 192.168.1.20 --variation location --value "Substation North"
 
 # Four delay measurements, one per second
 dnp3ctl client ping --ip 192.168.1.20
@@ -622,8 +680,9 @@ dnp3ctl client file info --ip 192.168.1.20 --path /records/disturbance-0001.dat
 dnp3ctl client file get --ip 192.168.1.20 --path /records/disturbance-0001.dat
 dnp3ctl client file get --ip 192.168.1.20 --path /logs/events.csv --output - | tail
 
-# Write and delete a file
+# Write, append to and delete a file
 dnp3ctl client file put --ip 192.168.1.20 --input settings.xml --path /config/settings.xml
+dnp3ctl client file put --ip 192.168.1.20 --input today.csv --path /logs/events.csv --append
 dnp3ctl client file rm --ip 192.168.1.20 --path /config/old.xml
 
 # An outstation that wants credentials first (the password is never a flag)
@@ -709,7 +768,7 @@ What it does:
 - **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE; `status` answers every control with a refusal of your choice, to test a master. An output with `command_event_class` reports every executed control as a **command event** (g13, g43) with the commanded value and the status.
 - **Serves times and intervals** (`time-and-interval` points, g50v4): a time with a repeat interval, such as a schedule, read by group and variation.
 - **Changes values by itself** where the model says `simulate` (`toggle`, `ramp`, `sine`, `random`, `count`), producing events of the point's class with the outstation's time.
-- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes, device attributes, and file transfer with uploads.
+- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes (also scheduled with FREEZE_AT_TIME), reads of deadbands (g34), device attributes of set 0 and of further `attribute_sets` (with writable variations), writes of deadbands, the management functions (accepted, or refused where the model lists them), broadcasts, and file transfer with uploads and appends. `indications` in the model sets LOCAL_CONTROL, DEVICE_TROUBLE or CONFIG_CORRUPT, to test how a master reacts.
 - **With Secure Authentication** challenges critical requests, accepts aggressive mode, and keeps the **security statistics** per master (g121, events g122 in class 1).
 
 Every event is written to stdout as it happens:
@@ -737,6 +796,7 @@ Every event is written to stdout as it happens:
 | `--tls-ca` | With a `tls://` `--dial`: verify the master's certificate against this CA (the system roots by default); `--tls-cert` and `--tls-key` are then the certificate presented to the master, and optional |
 | `--allow` | Only accept clients from these addresses or CIDR prefixes (TCP and TLS) |
 | `--max-sessions` | Maximum number of simultaneous connections (default 16) |
+| `--sa-reply-timeout`, `--sa-statistics-class`, `--sa-statistics-threshold` | With secure authentication: how long a challenge waits for its reply (default 10000 ms), and the class (default 1) and threshold (default 10 increments) of security statistic events |
 | `--sa-update-key-file`, `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5, with session key change by this update key, or with this pre-shared session key (or `DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`) |
 | `--link-confirmed`, `--link-timeout`, `--link-retries`, `--keep-alive` | As for the client |
 | `--duration` | Stop after this many seconds, for use in test pipelines |
@@ -764,17 +824,25 @@ dnp3ctl client read --object g30v5
 | Variable | Type | Description | Flag | Default |
 |----------|------|-------------|------|---------|
 | **DNP3CTL_ALLOW** | strings | **server start**: Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any) | `--allow` |  |
+| **DNP3CTL_APPEND** | bool | **client file put**: Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode) | `--append` |  |
 | **DNP3CTL_ASSIGN_CLASS** | uint8 | **client assign-class**: Class to assign, 0-3 (0 = no events) | `--class` |  |
-| **DNP3CTL_ATTRIBUTE** | string | **client attributes**: Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or a name such as manufacturer | `--variation` | all |
+| **DNP3CTL_ATTRIBUTE** | string | **client attributes**: Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or, in set 0, a name such as manufacturer; **client write-attribute**: Attribute to write: a variation number 1-253 or, in set 0, a name such as location | `--variation` | all |
+| **DNP3CTL_ATTRIBUTE_SET** | uint16 | **client attributes**, **client write-attribute**: Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation | `--set` |  |
+| **DNP3CTL_ATTRIBUTE_TYPE** | string | **client write-attribute**: Data type of the value: vstr (visible string), uint, int or float | `--data-type` | vstr |
+| **DNP3CTL_ATTRIBUTE_VALUE** | string | **client write-attribute**: Value to write | `--value` |  |
 | **DNP3CTL_BAUD** | uint32 | every client command, **server start**: Serial baud rate (0 = 9600) | `--baud` |  |
 | **DNP3CTL_BLOCK_SIZE** | uint16 | **client file ls**, **client file get**, **client file put**, **client file rm**: Largest block to ask for or send, in octets (0 = the outstation chooses) | `--block-size` |  |
+| **DNP3CTL_BROADCAST** | string | **client operate**, **client freeze**: Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response | `--broadcast` |  |
 | **DNP3CTL_CLASS** | string | **client poll**: Classes for --mode event (1-3) or class (0-3), comma-separated (default 1,2,3); **client unsolicited enable**: Event classes, comma-separated, 1-3 (default all three) | `--class` |  |
 | **DNP3CTL_CONFIG** | string | **server start**: Outstation model file (YAML or JSON); without it a built-in demo outstation is served | `--config` |  |
 | **DNP3CTL_CONFIG_FORMAT** | string | **server generate-config**: Format of the model: yaml or json | `--format` | yaml |
 | **DNP3CTL_CONTROL_TYPE** | string | **client operate**: Control: crob (control relay output block, g12v1) or analog (analog output block, g41) | `--type` |  |
 | **DNP3CTL_COUNT** | uint32 | **client read**: Read at most this many objects (events); cannot be combined with --range; **client monitor**: Stop after this many values (0 = until interrupted); **client ping**: Number of delay measurements before exiting (0 = until interrupted) | `--count` | 4 |
-| **DNP3CTL_DIAL** | string | **server start**: Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends | `--dial` |  |
 | **DNP3CTL_DATA_BITS** | uint8 | every client command, **server start**: Serial data bits, 5-8 (0 = 8) | `--data-bits` |  |
+| **DNP3CTL_DEADBAND** | string | **client write-deadband**: The deadband: a number of 0 or more | `--value` |  |
+| **DNP3CTL_DEADBAND_INDEX** | string | **client write-deadband**: Analog inputs whose deadband is written: an index, or several comma-separated | `--index` |  |
+| **DNP3CTL_DEADBAND_VARIATION** | uint8 | **client write-deadband**: Variation of g34: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); 0 = 2 for whole numbers that fit, 3 otherwise | `--variation` |  |
+| **DNP3CTL_DIAL** | string | **server start**: Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends | `--dial` |  |
 | **DNP3CTL_DISCOVER_FORCE_LARGE** | bool | **discover**: Allow a scan of more hosts than the built-in safety cap | `--force-large-scan` |  |
 | **DNP3CTL_DURATION** | uint32 | **client monitor**, **server start**: Stop after this many seconds (0 = until interrupted) | `--duration` |  |
 | **DNP3CTL_EVENTS** | bool | **client objects**: Only list event objects | `--events` |  |
@@ -782,7 +850,9 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_FILE_PATH** | string | **client file ls**: Directory to list; **client file info**: File or directory on the outstation; **client file get**: File on the outstation; **client file put**: File to create on the outstation; **client file rm**: File to delete on the outstation | `--path` | / |
 | **DNP3CTL_FILE_USER** | string | **client file ls**, **client file get**, **client file put**, **client file rm**: User name to authenticate file operations with (AUTHENTICATE_FILE); the password comes from --file-password-file or DNP3CTL_FILE_PASSWORD | `--file-user` |  |
 | **DNP3CTL_FORCE** | bool | **client file get**: Overwrite an existing --output file; **server generate-config**: Overwrite an existing file | `--force` |  |
+| **DNP3CTL_FREEZE_AT** | string | **client freeze**: Freeze at this time instead of at once (FREEZE_AT_TIME): an RFC 3339 time such as 2026-01-31T12:00:00Z | `--at` |  |
 | **DNP3CTL_FREEZE_CLEAR** | bool | **client freeze**: Reset the counters to zero after the freeze (FREEZE_CLEAR) | `--clear` |  |
+| **DNP3CTL_FREEZE_INTERVAL** | string | **client freeze**: With --at: repeat the freeze at this interval, such as 15m or 1h (default: once) | `--interval` |  |
 | **DNP3CTL_GROUP** | uint8 | **client objects**: Only list the variations of this group (0 = all groups) | `--group` |  |
 | **DNP3CTL_INDEX** | string | **client poll**: Only show these point indexes: list and ranges (e.g. 0,5-9); **client monitor**: Only show these point indexes: list and ranges | `--index` |  |
 | **DNP3CTL_INPUT** | string | **client file put**: Local file whose content is sent | `--input` |  |
@@ -794,6 +864,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_LINK_RETRIES** | uint8 | every client command, **server start**: Repeats of an unanswered primary link frame | `--link-retries` |  |
 | **DNP3CTL_LINK_TIMEOUT** | uint32 | every client command, **server start**: Wait in milliseconds for a link layer answer (0 = 2000) | `--link-timeout` |  |
 | **DNP3CTL_LISTEN** | string | **server start**: Address to listen on (TCP, TLS and UDP) | `--listen` |  |
+| **DNP3CTL_MANAGE_FUNCTION** | string | **client manage**: Management function: initialize-data, initialize-application, start-application, stop-application or save-configuration | `--function` |  |
 | **DNP3CTL_MASTER** | uint16 | every client command: Link address of this master; **discover**: Link address the probe is sent from | `--master` | 1 |
 | **DNP3CTL_MASTER_LISTEN** | string | Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip | `--listen` |  |
 | **DNP3CTL_MAX_SESSIONS** | uint16 | **server start**: Maximum number of simultaneous connections (0 = 16) | `--max-sessions` |  |
@@ -803,7 +874,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_OFF_TIME** | uint32 | **client operate**: Off time of a pulse in milliseconds | `--off-time` |  |
 | **DNP3CTL_ON_TIME** | uint32 | **client operate**: On time of a pulse in milliseconds | `--on-time` |  |
 | **DNP3CTL_OP** | string | **client operate**: Operation of a crob: latch-on, latch-off, pulse-on, pulse-off, close (pulse on, trip-close code close), trip (pulse on, trip-close code trip) or nul | `--op` |  |
-| **DNP3CTL_OPERATE_INDEX** | uint32 | **client operate**: Point index of the output | `--index` |  |
+| **DNP3CTL_OPERATE_INDEX** | string | **client operate**: Point index of the output, or several comma-separated (0,1,4) for several controls in one request | `--index` |  |
 | **DNP3CTL_OPERATE_MODE** | string | **client operate**: Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response) | `--mode` | sbo |
 | **DNP3CTL_OP_COUNT** | uint8 | **client operate**: Number of times a crob is executed | `--count` | 1 |
 | **DNP3CTL_OUTPUT** | string | **client file get**: File to write the content to (- = stdout; default: the base name of --path); **server generate-config**: File to write the model to (- = stdout) | `--output` | - |
@@ -823,9 +894,12 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_RETRIES** | uint8 | Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes | `--retries` |  |
 | **DNP3CTL_SA_AGGRESSIVE** | bool | Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key | `--sa-aggressive` |  |
 | **DNP3CTL_SA_KEY_CHANGE_INTERVAL** | uint32 | Seconds between session key changes while connected, with an update key (0 = 900) | `--sa-key-change-interval` |  |
-| **DNP3CTL_SA_KEY_FILE** | string | every client command, **server start**: File holding the pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication | `--sa-key-file` |  |
-| **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
+| **DNP3CTL_SA_KEY_FILE** | string | every client command, **server start**: File holding a pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication | `--sa-key-file` |  |
 | **DNP3CTL_SA_MAC** | string | every client command, **server start**: Secure authentication MAC algorithm: hmac-sha256-16 (default), hmac-sha256-8, hmac-sha1-10 or hmac-sha1-8 | `--sa-mac` |  |
+| **DNP3CTL_SA_REPLY_TIMEOUT** | uint32 | **server start**: Secure authentication: milliseconds a challenge waits for the master's reply (0 = 10000) | `--sa-reply-timeout` |  |
+| **DNP3CTL_SA_STATISTICS_CLASS** | uint8 | **server start**: Secure authentication: event class 1-3 of security statistic events, g122 (0 = 1) | `--sa-statistics-class` |  |
+| **DNP3CTL_SA_STATISTICS_THRESHOLD** | uint32 | **server start**: Secure authentication: increments of a security statistic between two of its events (0 = 10) | `--sa-statistics-threshold` |  |
+| **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
 | **DNP3CTL_SA_USER** | uint16 | every client command, **server start**: Secure authentication user number | `--sa-user` | 1 |
 | **DNP3CTL_SERIAL** | string | **server start**: Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits | `--serial` |  |
 | **DNP3CTL_STOP_BITS** | uint8 | every client command, **server start**: Serial stop bits, 1 or 2 (0 = 1) | `--stop-bits` |  |
@@ -841,11 +915,11 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TLS_KEY** | string | every client command, **server start**: PEM file with the private key of --tls-cert | `--tls-key` |  |
 | **DNP3CTL_TLS_SERVER_NAME** | string | Name to verify the outstation certificate against (default: the host) | `--tls-server-name` |  |
 | **DNP3CTL_UDP** | bool | **server start**: Serve DNP3 over UDP instead of TCP (one master at a time) | `--udp` |  |
-| **DNP3CTL_UNSOLICITED** | string | **client monitor**: Classes to enable unsolicited responses for after connecting, comma-separated, or none | `--unsolicited` | 1,2,3 |
-| **DNP3CTL_UDP_PEER** | string | **server start**: With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything | `--udp-peer` |  |
 | **DNP3CTL_UDP_LOCAL_PORT** | uint16 | With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port | `--udp-local-port` |  |
+| **DNP3CTL_UDP_PEER** | string | **server start**: With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything | `--udp-peer` |  |
+| **DNP3CTL_UNSOLICITED** | string | **client monitor**: Classes to enable unsolicited responses for after connecting, comma-separated, or none | `--unsolicited` | 1,2,3 |
 | **DNP3CTL_URL** | string | Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port | `--url` |  |
-| **DNP3CTL_VALUE** | string | **client operate**: Set-point value of an analog control | `--value` |  |
+| **DNP3CTL_VALUE** | string | **client operate**: Set-point value of an analog control: one for every index, or one per index, comma-separated | `--value` |  |
 | **DNP3CTL_VARIATION** | uint8 | **client operate**: Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise | `--variation` |  |
 | **DNP3CTL_SA_KEY** | hex | Secure Authentication pre-shared session key (instead of `--sa-key-file`); environment only | — | |
 | **DNP3CTL_SA_UPDATE_KEY** | hex | Secure Authentication update key (instead of `--sa-update-key-file`); environment only | — | |
@@ -890,7 +964,7 @@ The outstation answered with values and set an error bit in its internal indicat
 
 ### Which outstations and stacks has it been tested with?
 
-The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3 and DSC Systems' go-dnp3, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
+The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3 and DSC go-dnp3, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.4.1, contract 1.3: among others device attribute sets, broadcast, freeze at time, deadbands and file append). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 

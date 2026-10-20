@@ -706,3 +706,276 @@ func TestSecureAuthenticationKeyChange(t *testing.T) {
 	t.Setenv("DNP3CTL_SA_UPDATE_KEY", "")
 	cli(t, st, "poll", "--sa-update-key-file", filepath.Join(dir, "missing")).want(t, 3)
 }
+
+// Broadcast, freeze at a time, attribute sets, file append and deadbands: what go-dnp3
+// v1.1.0 adds and dnp3ctl exposes.
+func TestBroadcastAndFreezeAtTime(t *testing.T) {
+	st := stationtest.Start(t, stationtest.Model)
+	db := st.Server().Database()
+
+	t.Run("broadcast operate", func(t *testing.T) {
+		var res types.OperateResult
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct-no-ack", "--broadcast", "no-confirm", "--format", "json").
+			want(t, 0).decode(t, &res)
+		if res.Broadcast != "no-confirm" || res.Status != "not-reported" {
+			t.Errorf("result %+v", res)
+		}
+		eventually(t, "the broadcast control to be executed", func() bool {
+			v, _ := db.Get(server.BinaryOutput, 1)
+			b, _ := v.(app.Binary)
+			return b.Value
+		})
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-off", "--mode", "direct", "--broadcast", "confirm").
+			want(t, 0).has(t, "every outstation (broadcast, confirm)", "not-reported")
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--broadcast", "optional").want(t, 3).errHas(t, "--mode direct")
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--broadcast", "everyone").want(t, 3)
+		// With secure authentication a broadcast cannot be authenticated: it is refused
+		// before anything is sent.
+		t.Setenv("DNP3CTL_SA_UPDATE_KEY", strings.Repeat("ab", 16))
+		cli(t, st, "operate", "--type", "crob", "--index", "1", "--op", "latch-on", "--mode", "direct", "--broadcast", "no-confirm").want(t, 3).errHas(t, "cannot be used with secure authentication")
+		cli(t, st, "freeze", "--broadcast", "no-confirm").want(t, 3).errHas(t, "cannot be used with secure authentication")
+		t.Setenv("DNP3CTL_SA_UPDATE_KEY", "")
+	})
+	t.Run("broadcast freeze", func(t *testing.T) {
+		var res types.ConfirmedResult
+		cli(t, st, "freeze", "--broadcast", "optional", "--no-ack", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Broadcast != "optional" || res.Request != "freeze" {
+			t.Errorf("result %+v", res)
+		}
+		eventually(t, "the broadcast freeze", func() bool {
+			v, _ := db.Get(server.FrozenCounter, 0)
+			c, _ := v.(app.Counter)
+			return c.Value == 123456
+		})
+		cli(t, st, "freeze", "--broadcast", "no-confirm", "--clear").want(t, 0).has(t, "freeze-clear", "a broadcast is not answered")
+		cli(t, st, "freeze", "--broadcast", "confirm", "--format", "table").want(t, 0).has(t, "sent")
+	})
+	t.Run("freeze at time", func(t *testing.T) {
+		at := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+		var res types.ConfirmedResult
+		cli(t, st, "freeze", "--at", at, "--interval", "15m", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Request != "freeze-at-time" || res.Interval != "15m0s" || res.Time == "" {
+			t.Errorf("result %+v", res)
+		}
+		cli(t, st, "freeze", "--object", "g30", "--at", at).want(t, 0).has(t, "freeze-at-time (g30v0 at ")
+		// A time that has passed, without an interval, is refused by the outstation.
+		cli(t, st, "freeze", "--at", "2020-01-01T00:00:00Z").want(t, 6)
+		for _, args := range [][]string{
+			{"--interval", "1h"},
+			{"--at", at, "--clear"},
+			{"--at", at, "--no-ack"},
+			{"--at", at, "--broadcast", "confirm"},
+			{"--at", "tomorrow"},
+			{"--at", at, "--interval", "often"},
+			{"--at", at, "--interval", "-1h"},
+			{"--broadcast", "everyone"},
+		} {
+			cli(t, st, append([]string{"freeze"}, args...)...).want(t, 3)
+		}
+	})
+}
+
+func TestAttributeSetsAppendDeadbands(t *testing.T) {
+	st := stationtest.Start(t, stationtest.Model)
+
+	t.Run("read a set", func(t *testing.T) {
+		var res types.AttributesResult
+		cli(t, st, "attributes", "--set", "1", "--format", "json").want(t, 0).decode(t, &res)
+		values := map[uint8]any{}
+		for _, a := range res.Attributes {
+			values[a.Variation] = a.Value
+		}
+		if res.Set != 1 || values[1] != "feeder" || values[2] != float64(42) || values[3] != float64(-5) || values[4] != 1.5 {
+			t.Errorf("set 1: %+v", res)
+		}
+		cli(t, st, "attributes", "--set", "1").want(t, 0).has(t, "Device attributes (set 1)", "attribute-1", "feeder")
+		cli(t, st, "attributes", "--set", "1", "--variation", "list").want(t, 0).has(t, "1(rw)", "3(r)")
+		cli(t, st, "attributes", "--set", "1", "--variation", "manufacturer").want(t, 3).errHas(t, "names are those of set 0")
+		cli(t, st, "attributes", "--set", "9").want(t, 6)
+	})
+	t.Run("write", func(t *testing.T) {
+		var res types.ConfirmedResult
+		cli(t, st, "write-attribute", "--set", "1", "--variation", "1", "--value", "feeder 7b", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Request != "write-attribute" || res.Set == nil || *res.Set != 1 || res.Attribute == nil || res.Attribute.Value != "feeder 7b" {
+			t.Errorf("result %+v", res)
+		}
+		cli(t, st, "attributes", "--set", "1", "--variation", "1").want(t, 0).has(t, "feeder 7b")
+		cli(t, st, "write-attribute", "--set", "1", "--variation", "2", "--value", "43", "--data-type", "uint").want(t, 0).has(t, "set 1 variation 2 attribute-2 = 43")
+		// Variation 3 is not writable, and variation 2 takes a number.
+		cli(t, st, "write-attribute", "--set", "1", "--variation", "3", "--value", "-6", "--data-type", "int").want(t, 6)
+		cli(t, st, "write-attribute", "--set", "1", "--variation", "2", "--value", "text").want(t, 6)
+		// In set 0 the user-assigned attributes go to the outstation's write handler.
+		cli(t, st, "write-attribute", "--variation", "location", "--value", "Bay 7", "--format", "table").want(t, 0).has(t, "write-attribute", "confirmed")
+		eventually(t, "the write to be logged", func() bool {
+			for _, e := range st.Events() {
+				if e.Event == "write" && e.Detail == "attribute set 1" {
+					return true
+				}
+			}
+			return false
+		})
+		for _, args := range [][]string{
+			{"--variation", "all", "--value", "x"},
+			{"--variation", "254", "--value", "x"},
+			{"--set", "1", "--variation", "location", "--value", "x"},
+			{"--variation", "245", "--value", "x", "--data-type", "blob"},
+			{"--variation", "245", "--value", "x", "--data-type", "uint"},
+			{"--variation", "245", "--value", "4294967296", "--data-type", "uint"},
+			{"--variation", "245", "--value", "x", "--data-type", "int"},
+			{"--variation", "245", "--value", "x", "--data-type", "float"},
+			{"--variation", "245", "--value", ""},
+		} {
+			cli(t, st, append([]string{"write-attribute"}, args...)...).want(t, 3)
+		}
+		cli(t, st, "write-attribute", "--variation", "1", "--value", "1.5", "--data-type", "float").want(t, 6)
+		run(t, "client", "write-attribute", "--ip", "127.0.0.1", "--variation", "245").want(t, 2)
+	})
+	t.Run("append", func(t *testing.T) {
+		dir := t.TempDir()
+		part := filepath.Join(dir, "part.csv")
+		_ = os.WriteFile(part, []byte("line\n"), 0o600)
+		cli(t, st, "file", "put", "--input", part, "--path", "/logs/x.csv").want(t, 0)
+		var res types.FileTransferResult
+		cli(t, st, "file", "put", "--input", part, "--path", "/logs/x.csv", "--append", "--format", "json").want(t, 0).decode(t, &res)
+		if !res.Append || res.Length != 5 {
+			t.Errorf("append: %+v", res)
+		}
+		cli(t, st, "file", "put", "--input", part, "--path", "/logs/x.csv", "--append").want(t, 0).has(t, "Appended /logs/x.csv to")
+		if r := cli(t, st, "file", "get", "--path", "/logs/x.csv", "--output", "-").want(t, 0); r.stdout != "line\nline\nline\n" {
+			t.Errorf("after two appends: %q", r.stdout)
+		}
+	})
+	t.Run("deadbands", func(t *testing.T) {
+		var res types.PollResult
+		cli(t, st, "read", "--object", "g34v1", "--range", "0", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Count != 1 || res.Measurements[0].Type != "analog-deadband" || res.Measurements[0].Value != float64(1) && res.Measurements[0].Value != 0.5 {
+			t.Errorf("deadbands: %+v", res)
+		}
+	})
+}
+
+func TestSeveralControls(t *testing.T) {
+	st := stationtest.Start(t, stationtest.Model)
+	db := st.Server().Database()
+	on := func(i uint32) bool {
+		v, _ := db.Get(server.BinaryOutput, i)
+		b, _ := v.(app.Binary)
+		return b.Value
+	}
+
+	var res types.OperateResult
+	cli(t, st, "operate", "--type", "crob", "--index", "1,3", "--op", "latch-on", "--mode", "direct", "--format", "json").want(t, 0).decode(t, &res)
+	if res.Status != "SUCCESS" || len(res.Controls) != 2 || res.Controls[1].Index != 3 || res.Controls[1].Status != "SUCCESS" || res.Error != nil {
+		t.Errorf("two controls: %+v", res)
+	}
+	if !on(1) {
+		t.Error("output 1 was not operated")
+	}
+	r := cli(t, st, "operate", "--type", "crob", "--index", "1,3", "--op", "latch-off", "--mode", "direct").want(t, 0)
+	r.has(t, "g12v1 index 1,3: LATCH_OFF", "\n  index 1     LATCH_OFF      SUCCESS", "\n  index 3     LATCH_OFF      SUCCESS")
+	if n := len(strings.Split(strings.TrimSpace(cli(t, st, "operate", "--type", "crob", "--index", "1,3", "--op", "latch-on", "--mode", "direct", "--format", "table").want(t, 0).stdout), "\n")); n != 4 {
+		t.Errorf("table: %d lines, want a header, a rule and a row per control", n)
+	}
+
+	// A direct operate refused for some controls executed the others: a partial result.
+	cli(t, st, "operate", "--type", "crob", "--index", "1,2", "--op", "latch-off", "--mode", "direct", "--format", "json").want(t, 7).decode(t, &res)
+	if res.Status != "LOCAL" || res.Controls[0].Status != "SUCCESS" || res.Controls[1].Status != "LOCAL" || res.Error == nil || res.Error.Code != "command_refused" {
+		t.Errorf("partial: %+v", res)
+	}
+	if on(1) {
+		t.Error("the control that succeeded was not executed")
+	}
+	cli(t, st, "operate", "--type", "crob", "--index", "1,2", "--op", "latch-on", "--mode", "direct").want(t, 7).has(t, "error: the outstation refused the control")
+	// With select-before-operate a refusal is fatal, and every status is named.
+	cli(t, st, "operate", "--type", "crob", "--index", "1,2", "--op", "latch-on").want(t, 6).errHas(t, "statuses: index 1 SUCCESS, index 2 LOCAL")
+	cli(t, st, "operate", "--type", "crob", "--index", "2,9", "--op", "latch-on", "--mode", "direct").want(t, 6).errHas(t, "statuses: index 2 LOCAL, index 9 NOT_SUPPORTED")
+
+	// Set-points: one value for all, or one per index.
+	cli(t, st, "operate", "--type", "analog", "--index", "0,5", "--value", "20,30", "--mode", "direct", "--format", "json").want(t, 7).decode(t, &res)
+	if res.Object != "g41v1" || *res.Controls[0].Value != 20 || *res.Controls[1].Value != 30 || res.Controls[1].Status != "NOT_SUPPORTED" {
+		t.Errorf("set-points: %+v", res)
+	}
+	cli(t, st, "operate", "--type", "analog", "--index", "0", "--value", "20.5").want(t, 0).has(t, "g41v3 index 0: 20.5")
+	cli(t, st, "operate", "--type", "analog", "--index", "0,5", "--value", "1.5", "--mode", "direct").want(t, 7).has(t, "set-points", "index 5     1.5")
+	cli(t, st, "operate", "--type", "crob", "--index", "1,3", "--op", "latch-on", "--mode", "direct-no-ack", "--broadcast", "confirm").want(t, 0).has(t, "index 1,3")
+	for _, args := range [][]string{
+		{"--type", "crob", "--index", "1,1", "--op", "latch-on"},
+		{"--type", "crob", "--index", "1,x", "--op", "latch-on"},
+		{"--type", "analog", "--index", "0,5", "--value", "1,2,3"},
+		{"--type", "analog", "--index", "0", "--value", "1,x"},
+		{"--type", "analog", "--index", "0,5", "--value", "1,1.5", "--variation", "2"},
+	} {
+		cli(t, st, append([]string{"operate"}, args...)...).want(t, 3)
+	}
+}
+
+func TestManagementRestartAndDeadbands(t *testing.T) {
+	model := strings.Replace(stationtest.Model, "  restart_delay: 1s\n", "  restart_delay: 1s\n  refused_functions: [save-configuration]\n  indications: [local-control, device-trouble]\n", 1)
+	st := stationtest.Start(t, model)
+
+	t.Run("manage", func(t *testing.T) {
+		for _, f := range []string{"initialize-data", "initialize-application", "start-application", "stop-application"} {
+			var res types.ConfirmedResult
+			cli(t, st, "manage", "--function", f, "--format", "json").want(t, 0).decode(t, &res)
+			if res.Request != f || res.Function == "" {
+				t.Errorf("%s: %+v", f, res)
+			}
+		}
+		kind, code := cli(t, st, "manage", "--function", "save-configuration", "--format", "json").want(t, 6).errorCode(t)
+		if kind != "refused" || code != "no_func_code_support" {
+			t.Errorf("refused function: %s/%s", kind, code)
+		}
+		cli(t, st, "manage", "--function", "start-application", "--format", "table").want(t, 0).has(t, "START_APPL")
+		cli(t, st, "manage", "--function", "reboot").want(t, 3)
+		run(t, "client", "manage", "--ip", "127.0.0.1").want(t, 2)
+		managed := map[string]bool{}
+		for _, e := range st.Events() {
+			if e.Event == "manage" {
+				managed[e.Function+" "+e.Detail] = true
+			}
+		}
+		if !managed["SAVE_CONFIG refused"] || !managed["START_APPL "] {
+			t.Errorf("manage events: %v", managed)
+		}
+	})
+	t.Run("indications and clear-restart", func(t *testing.T) {
+		var res types.PollResult
+		cli(t, st, "read", "--object", "g80v1", "--format", "json").want(t, 0).decode(t, &res)
+		if !strings.Contains(res.IIN, "LOCAL_CONTROL") || !strings.Contains(res.IIN, "DEVICE_TROUBLE") || !strings.Contains(res.IIN, "DEVICE_RESTART") {
+			t.Errorf("IIN: %q", res.IIN)
+		}
+		var cr types.ConfirmedResult
+		cli(t, st, "clear-restart", "--format", "json").want(t, 0).decode(t, &cr)
+		if cr.Request != "clear-restart" {
+			t.Errorf("clear-restart: %+v", cr)
+		}
+		cli(t, st, "read", "--object", "g80v1", "--format", "json").want(t, 0).decode(t, &res)
+		if strings.Contains(res.IIN, "DEVICE_RESTART") {
+			t.Errorf("DEVICE_RESTART was not cleared: %q", res.IIN)
+		}
+	})
+	t.Run("deadbands", func(t *testing.T) {
+		var res types.ConfirmedResult
+		cli(t, st, "write-deadband", "--index", "0,1", "--value", "2.5", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Request != "write-deadband" || res.Objects[0] != "g34v3" || res.Range != "0,1" || res.Value == nil || *res.Value != 2.5 {
+			t.Errorf("write-deadband: %+v", res)
+		}
+		cli(t, st, "read", "--object", "g34v3", "--range", "0-1").want(t, 0).has(t, "2.5")
+		cli(t, st, "write-deadband", "--index", "0", "--value", "7").want(t, 0).has(t, "write-deadband (g34v2 0 = 7)")
+		cli(t, st, "write-deadband", "--index", "0", "--value", "300", "--variation", "1").want(t, 0)
+		cli(t, st, "write-deadband", "--index", "9", "--value", "1").want(t, 6)
+		for _, args := range [][]string{
+			{"--index", "0", "--value", "-1"},
+			{"--index", "0", "--value", "x"},
+			{"--index", "0", "--value", "1.5", "--variation", "2"},
+			{"--index", "0", "--value", "70000", "--variation", "1"},
+			{"--index", "0", "--value", "1", "--variation", "4"},
+			{"--index", "0,0", "--value", "1"},
+		} {
+			cli(t, st, append([]string{"write-deadband"}, args...)...).want(t, 3)
+		}
+	})
+	t.Run("debug log", func(t *testing.T) {
+		cli(t, st, "--debug", "read", "--object", "g1v2").want(t, 0).errHas(t, "debug: log ", "msg=connected", "component=dnp3.client")
+	})
+}

@@ -13,11 +13,19 @@ import (
 	"github.com/otfabric/dnp3ctl/internal/types"
 )
 
-// partialExit is the exit code of a poll or read: 7 when the outstation reported an error
-// in its IIN while it did answer with values.
+// partialExit is the exit code of a poll, read or operate: 7 when the outstation reported an
+// error in its IIN while it did answer with values, or refused some of the controls of a
+// direct operate and executed the others.
 func partialExit(v any) int {
-	if r, ok := v.(*types.PollResult); ok && r.Error != nil {
-		return errs.ExitPartial
+	switch r := v.(type) {
+	case *types.PollResult:
+		if r.Error != nil {
+			return errs.ExitPartial
+		}
+	case *types.OperateResult:
+		if r.Error != nil {
+			return errs.ExitPartial
+		}
 	}
 	return errs.ExitOK
 }

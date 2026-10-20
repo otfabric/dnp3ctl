@@ -23,6 +23,12 @@ outstation:
     software-version: "1.0"
     device-name: Feeder 7 RTU
     location: Substation North
+  # Further attribute sets, defined by the outstation (read with --set): variation numbers
+  # to values; "writable" variations can be written by a master.
+  attribute_sets:
+    - set: 1
+      attributes: {1: Feeder 7, 2: 11000, 3: 0.95}
+      writable: [1]
 
 # The point database. "class" 1-3 makes a point produce events of that class when it
 # changes (0: no events; it is still read in class 0). "simulate" makes a value change by

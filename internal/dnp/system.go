@@ -225,27 +225,94 @@ func AssignClass(ctx context.Context, cfg *config.AssignClassConfig, trace io.Wr
 
 var defaultFreeze = []app.GroupVariation{app.G20V0}
 
+// freezePlan is a validated freeze request.
+type freezePlan struct {
+	gvs       []app.GroupVariation
+	sel       Selection
+	at        time.Time
+	interval  time.Duration
+	broadcast string
+}
+
+func planFreeze(cfg *config.FreezeConfig) (freezePlan, error) {
+	gvs, sel, err := objectsPlan(cfg.Objects, cfg.Range, defaultFreeze)
+	if err != nil {
+		return freezePlan{}, err
+	}
+	p := freezePlan{gvs: gvs, sel: sel}
+	if _, p.broadcast, err = checkBroadcast(cfg.Broadcast, &cfg.ConnConfig); err != nil {
+		return p, err
+	}
+	at, every := strings.TrimSpace(cfg.At), strings.TrimSpace(cfg.Interval)
+	switch {
+	case at == "" && every != "":
+		return p, fmt.Errorf("--interval needs --at")
+	case at == "":
+		return p, nil
+	case cfg.Clear || cfg.NoAck || p.broadcast != "":
+		return p, fmt.Errorf("--at cannot be combined with --clear, --no-ack or --broadcast")
+	}
+	if p.at, err = time.Parse(time.RFC3339Nano, at); err != nil {
+		return p, fmt.Errorf("invalid --at %q: use an RFC 3339 time such as 2026-01-31T12:00:00Z", cfg.At)
+	}
+	if every != "" {
+		if p.interval, err = time.ParseDuration(every); err != nil || p.interval <= 0 {
+			return p, fmt.Errorf("invalid --interval %q: use a duration such as 15m or 1h", cfg.Interval)
+		}
+	}
+	return p, nil
+}
+
 // CheckFreeze validates the configuration of `client freeze`.
 func CheckFreeze(cfg *config.FreezeConfig) error {
 	if err := Validate(&cfg.ConnConfig); err != nil {
 		return err
 	}
-	_, _, err := objectsPlan(cfg.Objects, cfg.Range, defaultFreeze)
+	_, err := planFreeze(cfg)
 	return err
 }
 
-// Freeze freezes counters or analog inputs, optionally clearing the counters.
+// freezeFunction returns the function code of an immediate freeze.
+func freezeFunction(clear, noAck bool) app.FunctionCode {
+	switch {
+	case clear && noAck:
+		return app.FuncFreezeClearNoAck
+	case clear:
+		return app.FuncFreezeClear
+	case noAck:
+		return app.FuncImmediateFreezeNoAck
+	default:
+		return app.FuncImmediateFreeze
+	}
+}
+
+// Freeze freezes counters or analog inputs: at once, optionally clearing the counters, or
+// at a time, optionally repeated; to the outstation or broadcast.
 func Freeze(ctx context.Context, cfg *config.FreezeConfig, trace io.Writer) (*types.ConfirmedResult, error) {
-	gvs, sel, err := objectsPlan(cfg.Objects, cfg.Range, defaultFreeze)
+	p, err := planFreeze(cfg)
 	if err != nil {
 		return nil, err
 	}
-	res := &types.ConfirmedResult{Request: "freeze", Objects: ObjectNames(gvs), Range: sel.String(), NoAck: cfg.NoAck}
-	if cfg.Clear {
+	res := &types.ConfirmedResult{Request: "freeze", Objects: ObjectNames(p.gvs), Range: p.sel.String(), NoAck: cfg.NoAck, Broadcast: p.broadcast}
+	switch {
+	case !p.at.IsZero():
+		res.Request, res.Time = "freeze-at-time", p.at.UTC().Format(timeLayout)
+		if p.interval != 0 {
+			res.Interval = p.interval.String()
+		}
+	case cfg.Clear:
 		res.Request = "freeze-clear"
 	}
+	headers := p.sel.Headers(p.gvs)
 	return confirmed(ctx, &cfg.ConnConfig, trace, res, func(ctx context.Context, s *Session) error {
-		return s.Freeze(ctx, cfg.Clear, cfg.NoAck, sel.Headers(gvs)...)
+		switch {
+		case !p.at.IsZero():
+			return s.FreezeAtTime(ctx, p.at, p.interval, headers...)
+		case p.broadcast != "":
+			return s.Broadcast(ctx, broadcastAddresses[p.broadcast], freezeFunction(cfg.Clear, cfg.NoAck), headers...)
+		default:
+			return s.Freeze(ctx, cfg.Clear, cfg.NoAck, headers...)
+		}
 	})
 }
 

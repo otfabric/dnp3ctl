@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -358,7 +359,7 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 		opts = append(opts, client.WithAggressiveMode())
 	}
 	if cfg.Debug && trace != nil {
-		opts = append(opts, client.WithMetrics(&Tracer{W: trace}))
+		opts = append(opts, client.WithMetrics(&Tracer{W: trace}), client.WithLogger(DebugLogger(trace)))
 	}
 	return target, opts, listenTLS, nil
 }
@@ -541,4 +542,37 @@ func (t *Tracer) line(dir string, remote net.Addr, text string) {
 		addr = remote.String()
 	}
 	_, _ = fmt.Fprintf(t.W, "debug: %s %s %s %s\n", time.Now().UTC().Format("15:04:05.000"), dir, addr, text)
+}
+
+// DebugLogger returns a logger that writes go-dnp3's own log entries to w, next to the
+// frame trace of --debug, one line each: connections, reconnects, warnings, errors and
+// authentication. The library's per-frame debug entries are left out, as the trace shows
+// every frame and fragment already.
+func DebugLogger(w io.Writer) dnp3.Logger {
+	h := slog.NewTextHandler(&linePrefixer{w: w}, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// The time of the record, not an entry's own field named time.
+			if len(groups) == 0 && a.Key == slog.TimeKey && a.Value.Kind() == slog.KindTime {
+				return slog.String(slog.TimeKey, a.Value.Time().UTC().Format("15:04:05.000"))
+			}
+			return a
+		},
+	})
+	return dnp3.NewSlogLogger(h)
+}
+
+// linePrefixer marks the log lines of go-dnp3 in the --debug output.
+type linePrefixer struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (p *linePrefixer) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, err := io.WriteString(p.w, "debug: log "); err != nil {
+		return 0, err
+	}
+	return p.w.Write(b)
 }

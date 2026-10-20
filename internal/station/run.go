@@ -146,9 +146,16 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	if user == nil && (cfg.SAReplyTimeout != 0 || cfg.SAStatisticsClass != 0 || cfg.SAStatisticsEvery != 0) {
+		return nil, fmt.Errorf("--sa-reply-timeout and the security statistics flags need secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)")
+	}
+	if cfg.SAStatisticsClass > 3 {
+		return nil, fmt.Errorf("invalid --sa-statistics-class %d: use 1-3", cfg.SAStatisticsClass)
+	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
 	return &plan{model: m, allow: allow, peer: peer, dial: dial, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
+		AuthReplyTimeout: time.Duration(cfg.SAReplyTimeout) * time.Millisecond, StatisticsClass: cfg.SAStatisticsClass, StatisticsThreshold: cfg.SAStatisticsEvery,
 	}}, nil
 }
 
@@ -209,7 +216,7 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 	}
 	p.opts.Log = log
 	if cfg.Debug && trace != nil {
-		p.opts.Metrics = &dnp.Tracer{W: trace}
+		p.opts.Metrics, p.opts.Logger = &dnp.Tracer{W: trace}, dnp.DebugLogger(trace)
 	}
 	st, err := New(p.model, p.opts)
 	if err != nil {

@@ -88,15 +88,34 @@ type OperateResult struct {
 	OffTimeMs uint32 `json:"off_time_ms,omitempty"`
 	// Value is the set-point of an analog control.
 	Value *float64 `json:"value,omitempty"`
+	// Broadcast is the broadcast address the control went to instead of the outstation:
+	// "no-confirm", "confirm" or "optional". Omitted for a control to one outstation.
+	Broadcast string `json:"broadcast,omitempty"`
 	// Status is the command status the outstation echoed: "SUCCESS", or "not-reported" for
-	// direct-no-ack.
-	Status string  `json:"status"`
-	RTTMs  float64 `json:"rtt_ms"`
+	// direct-no-ack and broadcasts. With several controls it is SUCCESS when every control
+	// succeeded, otherwise the first status that is not.
+	Status string `json:"status"`
+	// Controls lists every control of the request (Index and Value above are those of the
+	// first) with its status.
+	Controls []ControlStatus `json:"controls"`
+	RTTMs    float64         `json:"rtt_ms"`
+	// Error is set when a direct operate of several controls was refused for some of them:
+	// the others were executed, and the result is partial (exit code 7).
+	Error *ErrorInfo `json:"error,omitempty"`
 }
 
-func (r *OperateResult) what() string {
+// ControlStatus is one control of a request and the status the outstation echoed.
+type ControlStatus struct {
+	Index  uint32   `json:"index"`
+	Value  *float64 `json:"value,omitempty"`
+	Status string   `json:"status"`
+}
+
+// control describes the control, without its index: "LATCH_ON CLOSE count=1 on=…" for a
+// crob, the value of an analog control.
+func (r *OperateResult) control(value *float64) string {
 	if r.Type == "crob" {
-		s := fmt.Sprintf("%s index %d: %s", r.Object, r.Index, r.Op)
+		s := r.Op
 		if r.TripClose != "" && r.TripClose != "NUL" {
 			s += " " + r.TripClose
 		}
@@ -106,15 +125,49 @@ func (r *OperateResult) what() string {
 		return s
 	}
 	v := 0.0
-	if r.Value != nil {
-		v = *r.Value
+	if value != nil {
+		v = *value
 	}
-	return fmt.Sprintf("%s index %d: %s", r.Object, r.Index, strconv.FormatFloat(v, 'g', -1, 64))
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+// indexes renders the indexes of the controls ("3", "0,1,4").
+func (r *OperateResult) indexes() string {
+	if len(r.Controls) == 0 {
+		return strconv.FormatUint(uint64(r.Index), 10)
+	}
+	parts := make([]string, 0, len(r.Controls))
+	for _, c := range r.Controls {
+		parts = append(parts, strconv.FormatUint(uint64(c.Index), 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *OperateResult) MarshalTextOutput() (string, error) {
-	return fmt.Sprintf("Operate (%s) %s on outstation %d at %s: %s in %.1f ms", r.Mode, r.what(), r.Outstation, r.Target, r.Status, r.RTTMs), nil
+	what := r.control(r.Value)
+	if r.Type != "crob" && len(r.Controls) > 1 {
+		what = "set-points"
+	}
+	s := fmt.Sprintf("Operate (%s) %s index %s: %s on %s at %s: %s in %.1f ms", r.Mode, r.Object, r.indexes(), what, recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs)
+	if len(r.Controls) > 1 {
+		for _, c := range r.Controls {
+			s += fmt.Sprintf("\n  index %-5d %-14s %s", c.Index, r.control(c.Value), c.Status)
+		}
+	}
+	if r.Error != nil {
+		s += "\n  error: " + r.Error.Message
+	}
+	return s, nil
+}
+
+// recipient names who a request went to: the outstation, or every outstation of a
+// broadcast.
+func recipient(outstation uint16, broadcast string) string {
+	if broadcast != "" {
+		return "every outstation (broadcast, " + broadcast + ")"
+	}
+	return "outstation " + strconv.Itoa(int(outstation))
 }
 
 // TableHeaders implements format.TableMarshaler.
@@ -122,13 +175,17 @@ func (r *OperateResult) TableHeaders() []string {
 	return []string{"OBJECT", "INDEX", "CONTROL", "MODE", "STATUS", "RTT_MS"}
 }
 
-// TableRows implements format.TableMarshaler.
+// TableRows implements format.TableMarshaler: a row per control.
 func (r *OperateResult) TableRows() [][]string {
-	control := ""
-	if _, after, ok := strings.Cut(r.what(), ": "); ok {
-		control = after
+	controls := r.Controls
+	if len(controls) == 0 {
+		controls = []ControlStatus{{Index: r.Index, Value: r.Value, Status: r.Status}}
 	}
-	return [][]string{{r.Object, strconv.FormatUint(uint64(r.Index), 10), control, r.Mode, r.Status, fmt.Sprintf("%.1f", r.RTTMs)}}
+	rows := make([][]string, 0, len(controls))
+	for _, c := range controls {
+		rows = append(rows, []string{r.Object, strconv.FormatUint(uint64(c.Index), 10), r.control(c.Value), r.Mode, c.Status, fmt.Sprintf("%.1f", r.RTTMs)})
+	}
+	return rows
 }
 
 // ConfirmedResult is the result of a request that is answered by a null response alone:
@@ -137,12 +194,16 @@ type ConfirmedResult struct {
 	Target     string `json:"target"`
 	Outstation uint16 `json:"outstation"`
 	// Request is "time-sync", "cold-restart", "warm-restart", "enable-unsolicited",
-	// "disable-unsolicited", "assign-class", "freeze", "freeze-clear" or "delete-file".
+	// "disable-unsolicited", "assign-class", "freeze", "freeze-clear", "freeze-at-time",
+	// "write-attribute", "write-deadband", "clear-restart", "delete-file", or the
+	// management function of `client manage` ("save-configuration", ...).
 	Request string `json:"request"`
 	// Method is the time synchronization procedure: "lan", "non-lan" or "write".
 	Method string `json:"method,omitempty"`
-	// Time is the time a time synchronization wrote, as this computer saw it.
-	Time string `json:"time,omitempty"`
+	// Time is the time a time synchronization wrote, as this computer saw it, or the time of
+	// a freeze-at-time; Interval the interval it repeats at.
+	Time     string `json:"time,omitempty"`
+	Interval string `json:"interval,omitempty"`
 	// DelayMs is the time after which an outstation that restarts can be polled again.
 	DelayMs *float64 `json:"delay_ms,omitempty"`
 	// Classes are the classes unsolicited responses were enabled or disabled for; Class is
@@ -154,6 +215,16 @@ type ConfirmedResult struct {
 	Range   string   `json:"range,omitempty"`
 	// NoAck is set when the request was sent in its no-acknowledgement form.
 	NoAck bool `json:"no_ack,omitempty"`
+	// Broadcast is the broadcast address the request went to: "no-confirm", "confirm" or
+	// "optional". Nobody answers a broadcast.
+	Broadcast string `json:"broadcast,omitempty"`
+	// Function is the function code of a management function ("SAVE_CONFIG").
+	Function string `json:"function,omitempty"`
+	// Value is the deadband of write-deadband.
+	Value *float64 `json:"value,omitempty"`
+	// Set and Attribute are the attribute set and the attribute of write-attribute.
+	Set       *int       `json:"set,omitempty"`
+	Attribute *Attribute `json:"attribute,omitempty"`
 	// Path is the file of delete-file.
 	Path  string  `json:"path,omitempty"`
 	RTTMs float64 `json:"rtt_ms"`
@@ -177,8 +248,27 @@ func (r *ConfirmedResult) detail() string {
 		return fmt.Sprintf("%s%s to class %d", strings.Join(r.Objects, ","), rangeSuffix(r.Range), c)
 	case "freeze", "freeze-clear":
 		return strings.Join(r.Objects, ",") + rangeSuffix(r.Range)
+	case "freeze-at-time":
+		s := strings.Join(r.Objects, ",") + rangeSuffix(r.Range) + " at " + r.Time
+		if r.Interval != "" {
+			s += " every " + r.Interval
+		}
+		return s
+	case "write-attribute":
+		if r.Set != nil && r.Attribute != nil {
+			return fmt.Sprintf("set %d variation %d %s = %s", *r.Set, r.Attribute.Variation, r.Attribute.Name, r.Attribute.valueText())
+		}
 	case "delete-file":
 		return r.Path
+	case "write-deadband":
+		v := 0.0
+		if r.Value != nil {
+			v = *r.Value
+		}
+		return fmt.Sprintf("%s%s = %s", strings.Join(r.Objects, ","), rangeSuffix(r.Range), strconv.FormatFloat(v, 'g', -1, 64))
+	}
+	if r.Function != "" {
+		return r.Function
 	}
 	return ""
 }
@@ -193,10 +283,13 @@ func rangeSuffix(rng string) string {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *ConfirmedResult) MarshalTextOutput() (string, error) {
 	verdict := fmt.Sprintf("confirmed in %.1f ms", r.RTTMs)
-	if r.NoAck {
+	switch {
+	case r.Broadcast != "":
+		verdict = "sent; a broadcast is not answered"
+	case r.NoAck:
 		verdict = "sent without acknowledgement"
 	}
-	return fmt.Sprintf("%s (%s) of outstation %d at %s: %s", r.Request, r.detail(), r.Outstation, r.Target, verdict), nil
+	return fmt.Sprintf("%s (%s) of %s at %s: %s", r.Request, r.detail(), recipient(r.Outstation, r.Broadcast), r.Target, verdict), nil
 }
 
 // TableHeaders implements format.TableMarshaler.
@@ -207,7 +300,7 @@ func (r *ConfirmedResult) TableHeaders() []string {
 // TableRows implements format.TableMarshaler.
 func (r *ConfirmedResult) TableRows() [][]string {
 	result := "confirmed"
-	if r.NoAck {
+	if r.NoAck || r.Broadcast != "" {
 		result = "sent"
 	}
 	return [][]string{{strconv.Itoa(int(r.Outstation)), r.Request, r.detail(), result, fmt.Sprintf("%.1f", r.RTTMs)}}
@@ -292,8 +385,10 @@ type AttributeListEntry struct {
 
 // AttributesResult is the result of `client attributes`.
 type AttributesResult struct {
-	Target     string      `json:"target"`
-	Outstation uint16      `json:"outstation"`
+	Target     string `json:"target"`
+	Outstation uint16 `json:"outstation"`
+	// Set is the device attribute set read; 0 is the standard set.
+	Set        uint16      `json:"set"`
 	Count      int         `json:"count"`
 	Attributes []Attribute `json:"attributes"`
 }
@@ -320,7 +415,11 @@ func (a Attribute) valueText() string {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *AttributesResult) MarshalTextOutput() (string, error) {
 	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "Device attributes of outstation %d at %s: %d\n", r.Outstation, r.Target, r.Count)
+	set := ""
+	if r.Set != 0 {
+		set = fmt.Sprintf(" (set %d)", r.Set)
+	}
+	_, _ = fmt.Fprintf(&b, "Device attributes%s of outstation %d at %s: %d\n", set, r.Outstation, r.Target, r.Count)
 	for _, a := range r.Attributes {
 		_, _ = fmt.Fprintf(&b, "  %3d  %-34s %-5s %s\n", a.Variation, a.Name, a.DataType, a.valueText())
 	}
@@ -418,8 +517,10 @@ type FileTransferResult struct {
 	// Direction is "download" or "upload".
 	Direction string `json:"direction"`
 	// Path is the file on the outstation; Local the local file (empty for stdout).
-	Path       string  `json:"path"`
-	Local      string  `json:"local,omitempty"`
+	Path  string `json:"path"`
+	Local string `json:"local,omitempty"`
+	// Append is set for an upload added to the end of an existing file.
+	Append     bool    `json:"append,omitempty"`
 	Length     int64   `json:"length"`
 	SHA256     string  `json:"sha256"`
 	DurationMs float64 `json:"duration_ms"`
@@ -428,7 +529,10 @@ type FileTransferResult struct {
 // MarshalTextOutput implements format.TextMarshaler.
 func (r *FileTransferResult) MarshalTextOutput() (string, error) {
 	verb, where := "Fetched", "from"
-	if r.Direction == "upload" {
+	switch {
+	case r.Append:
+		verb, where = "Appended", "to"
+	case r.Direction == "upload":
 		verb, where = "Delivered", "to"
 	}
 	s := fmt.Sprintf("%s %s %s outstation %d at %s: %d octets in %.0f ms\n  sha256: %s", verb, r.Path, where, r.Outstation, r.Target, r.Length, r.DurationMs, r.SHA256)
@@ -551,7 +655,7 @@ func (r *DiscoverResult) TableRows() [][]string {
 type ServerEvent struct {
 	Timestamp string `json:"timestamp"`
 	// Event is "listening", "connected", "disconnected", "refused", "request", "control",
-	// "unsolicited", "time-sync", "restart", "write", "file", "events-discarded",
+	// "manage", "unsolicited", "time-sync", "restart", "write", "file", "events-discarded",
 	// "stopping" or "error".
 	Event  string `json:"event"`
 	Remote string `json:"remote,omitempty"`
