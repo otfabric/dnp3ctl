@@ -61,10 +61,11 @@ type Station struct {
 	controls map[pointKey]*control
 	files    *fileServer
 
-	udp  atomic.Pointer[peerConn] // the socket of ServeUDP, when serving UDP
-	stop chan struct{}
-	wg   sync.WaitGroup
-	mu   sync.Mutex // serializes the events of the log
+	udp   atomic.Pointer[peerConn] // the socket of ServeUDP, when serving UDP
+	udpUp atomic.Bool              // connected is logged for the UDP channel
+	stop  chan struct{}
+	wg    sync.WaitGroup
+	mu    sync.Mutex // serializes the events of the log
 }
 
 // control is a control of the model, resolved.
@@ -271,27 +272,74 @@ func (st *Station) ServeUDPTo(pc net.PacketConn, peer net.Addr) error {
 func (st *Station) watchUDP(pc net.PacketConn, peer net.Addr) *peerConn {
 	pp := &peerConn{PacketConn: pc}
 	if peer != nil {
-		s := peer.String()
-		pp.peer.Store(&s)
+		pp.setPeer(peer.String())
 	}
 	st.udp.Store(pp)
 	return pp
 }
 
 // peerConn records where the last datagram came from: go-dnp3 names a UDP channel by
-// the local address of its socket, the master is the peer.
+// the local address of its socket, the master is the peer. Over UDP nothing connects:
+// go-dnp3 opens the channel when it starts serving, and the event log says connected
+// only once a master is known, when the first datagram arrives (or at once with
+// --udp-peer).
 type peerConn struct {
 	net.PacketConn
-	peer atomic.Pointer[string]
+	mu      sync.Mutex
+	peer    string              // where the last datagram came from; "" before the first
+	waiting []func(peer string) // what waits for the first datagram
 }
 
 func (c *peerConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	n, addr, err := c.PacketConn.ReadFrom(b)
 	if addr != nil {
-		s := addr.String()
-		c.peer.Store(&s)
+		c.setPeer(addr.String())
 	}
 	return n, addr, err
+}
+
+// setPeer records the master and runs what waited for the first one.
+func (c *peerConn) setPeer(peer string) {
+	c.mu.Lock()
+	var waiting []func(string)
+	if c.peer == "" {
+		waiting, c.waiting = c.waiting, nil
+	}
+	c.peer = peer
+	c.mu.Unlock()
+	for _, f := range waiting {
+		f(peer)
+	}
+}
+
+// Peer returns the master the outstation answers: where the last datagram came from, or
+// "" before the first.
+func (c *peerConn) Peer() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.peer
+}
+
+// whenPeer calls f with the master: now when it is known, or else when the first
+// datagram arrives.
+func (c *peerConn) whenPeer(f func(peer string)) {
+	c.mu.Lock()
+	peer := c.peer
+	if peer == "" {
+		c.waiting = append(c.waiting, f)
+	}
+	c.mu.Unlock()
+	if peer != "" {
+		f(peer)
+	}
+}
+
+// udpChannel returns the UDP socket when a is the channel go-dnp3 names after it.
+func (st *Station) udpChannel(a net.Addr) *peerConn {
+	if pp := st.udp.Load(); pp != nil && a != nil && a.String() == pp.LocalAddr().String() {
+		return pp
+	}
+	return nil
 }
 
 // remoteText names the remote end of a channel in the event log: for UDP the master the
@@ -300,11 +348,8 @@ func (st *Station) remoteText(a net.Addr) string {
 	if a == nil {
 		return ""
 	}
-	if pp := st.udp.Load(); pp != nil && a.String() == pp.LocalAddr().String() {
-		if peer := pp.peer.Load(); peer != nil {
-			return *peer
-		}
-		return ""
+	if pp := st.udpChannel(a); pp != nil {
+		return pp.Peer()
 	}
 	return a.String()
 }
@@ -635,7 +680,16 @@ type eventMetrics struct {
 }
 
 func (m *eventMetrics) OnConnect(remote net.Addr) {
-	m.st.event(types.ServerEvent{Event: "connected", Remote: m.st.remoteText(remote)})
+	if pp := m.st.udpChannel(remote); pp != nil {
+		// Over UDP the channel opens before any master has sent anything: connected is
+		// logged when the first datagram names one.
+		pp.whenPeer(func(peer string) {
+			m.st.udpUp.Store(true)
+			m.st.event(types.ServerEvent{Event: "connected", Remote: peer})
+		})
+	} else {
+		m.st.event(types.ServerEvent{Event: "connected", Remote: m.st.remoteText(remote)})
+	}
 	if m.trace != nil {
 		m.trace.OnConnect(remote)
 	}
@@ -646,7 +700,11 @@ func (m *eventMetrics) OnDisconnect(remote net.Addr, err error) {
 	if err != nil {
 		e.Detail = err.Error()
 	}
-	m.st.event(e)
+	// A UDP channel no master ever sent to was never logged as connected, nor is it as
+	// disconnected.
+	if m.st.udpChannel(remote) == nil || m.st.udpUp.Swap(false) {
+		m.st.event(e)
+	}
 	if m.trace != nil {
 		m.trace.OnDisconnect(remote, err)
 	}

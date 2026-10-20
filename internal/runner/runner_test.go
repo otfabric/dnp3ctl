@@ -157,3 +157,42 @@ func TestRenderFatal(t *testing.T) {
 		t.Errorf("stdout fails: code %d, stderr %q", code, stderr.String())
 	}
 }
+
+func TestRequestedFormat(t *testing.T) {
+	stdout := &cobra.Command{Use: "poll"}
+	stdout.Flags().String("format", "text", "")
+	RegisterStdoutFormatCompletion(stdout)
+	fromEnv := &cobra.Command{Use: "read"}
+	fromEnv.Flags().String("format", "json", "") // the default DNP3CTL_OUTPUT_FORMAT gives it
+	RegisterStdoutFormatCompletion(fromEnv)
+	model := &cobra.Command{Use: "generate-config"}
+	model.Flags().String("format", "yaml", "")
+	bare := &cobra.Command{Use: "client"}
+	for _, c := range []struct {
+		name string
+		cmd  *cobra.Command
+		args []string
+		want format.OutputFormat
+		ok   bool
+	}{
+		{"flag default", stdout, nil, format.FormatText, true},
+		{"environment", fromEnv, []string{"--nope"}, format.FormatJSON, true},
+		{"command line over environment", fromEnv, []string{"--format", "table"}, format.FormatTable, true},
+		{"--format value", stdout, []string{"--x", "--format", "JSON"}, format.FormatJSON, true},
+		{"--format=value", stdout, []string{"--format=table"}, format.FormatTable, true},
+		{"last wins", stdout, []string{"--format=json", "--format", "text"}, format.FormatText, true},
+		{"after --", bare, []string{"--", "--format", "json"}, "", false},
+		{"dangling --format", bare, []string{"--format"}, "", false},
+		{"invalid", stdout, []string{"--format", "xml"}, "", false},
+		{"no --format at all", bare, []string{"nope"}, "", false},
+		{"no command", nil, []string{"--format", "json"}, format.FormatJSON, true},
+		{"another --format", model, []string{"--format", "json"}, "", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := RequestedFormat(c.cmd, c.args)
+			if got != c.want || ok != c.ok {
+				t.Errorf("RequestedFormat(%v) = %q, %t; want %q, %t", c.args, got, ok, c.want, c.ok)
+			}
+		})
+	}
+}

@@ -573,6 +573,35 @@ func TestTargetsAndErrors(t *testing.T) {
 		t.Setenv("DNP3CTL_OUTSTATION", "10")
 		run(t, "client", "read", "--object", "g1v2").want(t, 0).has(t, "2 objects")
 	})
+	t.Run("command line over the environment", func(t *testing.T) {
+		// A connection style on the command line wins over another one in the environment:
+		// the environment variables of the connection styles are then ignored.
+		unused := strconv.Itoa(int(stationtest.FreePort(t)))
+		for _, c := range []struct {
+			name string
+			env  map[string]string
+			args []string
+		}{
+			{"--ip over DNP3CTL_URL", map[string]string{"DNP3CTL_URL": "tcp://127.0.0.1:" + unused}, []string{"--ip", "127.0.0.1", "--port", port}},
+			{"--url over DNP3CTL_IP", map[string]string{"DNP3CTL_IP": "192.0.2.1"}, []string{"--url", "tcp://127.0.0.1:" + port}},
+			{"--url over DNP3CTL_MASTER_LISTEN", map[string]string{"DNP3CTL_MASTER_LISTEN": ":" + unused}, []string{"--url", "tcp://127.0.0.1:" + port}},
+			{"--ip over DNP3CTL_URL and DNP3CTL_MASTER_LISTEN", map[string]string{"DNP3CTL_URL": "udp://192.0.2.1", "DNP3CTL_MASTER_LISTEN": ":" + unused}, []string{"--ip", "127.0.0.1", "--port", port}},
+			{"--url over DNP3CTL_URL", map[string]string{"DNP3CTL_URL": "tcp://127.0.0.1:" + unused}, []string{"--url", "tcp://127.0.0.1:" + port}},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				for k, v := range c.env {
+					t.Setenv(k, v)
+				}
+				run(t, append([]string{"client", "read", "--object", "g1v2", "--timeout", "3000"}, c.args...)...).want(t, 0).has(t, "2 objects")
+			})
+		}
+		// Two styles both on the command line, or both in the environment, stay mutually
+		// exclusive.
+		t.Setenv("DNP3CTL_URL", "tcp://127.0.0.1:"+port)
+		run(t, "client", "read", "--object", "g1v2", "--ip", "127.0.0.1", "--listen", ":"+unused).want(t, 3).errHas(t, "mutually exclusive")
+		t.Setenv("DNP3CTL_IP", "127.0.0.1")
+		run(t, "client", "read", "--object", "g1v2").want(t, 3).errHas(t, "--url and --ip are mutually exclusive")
+	})
 	t.Run("invalid", func(t *testing.T) {
 		for _, args := range [][]string{
 			{},

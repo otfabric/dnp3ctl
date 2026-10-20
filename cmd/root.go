@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -69,7 +70,8 @@ func newVersionCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			out := cmd.OutOrStdout()
-			ver := strings.TrimSpace(buildMeta.version)
+			info, _ := debug.ReadBuildInfo()
+			ver, commit := versionOf(buildMeta.version, buildMeta.commit, info)
 			if ver == "" {
 				ver = "(unknown)"
 			}
@@ -77,8 +79,8 @@ func newVersionCmd() *cobra.Command {
 			if s := strings.TrimSpace(buildMeta.tag); s != "" {
 				_, _ = fmt.Fprintf(out, "tag:         %s\n", s)
 			}
-			if s := strings.TrimSpace(buildMeta.commit); s != "" {
-				_, _ = fmt.Fprintf(out, "commit:      %s\n", s)
+			if commit != "" {
+				_, _ = fmt.Fprintf(out, "commit:      %s\n", commit)
 			}
 			if s := strings.TrimSpace(buildMeta.buildDate); s != "" {
 				_, _ = fmt.Fprintf(out, "build date:  %s\n", s)
@@ -87,6 +89,37 @@ func newVersionCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(out, "platform:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		},
 	}
+}
+
+// devVersion is the version of a binary built without the ldflags of the Makefile.
+const devVersion = "dev"
+
+// versionOf returns the version and commit to report. The ldflags of the Makefile and of
+// the release set them; a binary built without them (go install, go build) reports what the
+// go toolchain records: the version of its module (v0.6.3 for go install …@v0.6.3, or one
+// derived from the git tags for go build in a clone, such as v0.6.3+dirty) and the git
+// revision, shortened as git rev-parse --short gives it.
+func versionOf(version, commit string, info *debug.BuildInfo) (string, string) {
+	version, commit = strings.TrimSpace(version), strings.TrimSpace(commit)
+	if info == nil {
+		return version, commit
+	}
+	if version == devVersion || version == "" {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			version = v
+		}
+	}
+	if commit == "" {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" {
+				commit = s.Value
+				if len(commit) > 7 {
+					commit = commit[:7]
+				}
+			}
+		}
+	}
+	return version, commit
 }
 
 // Execute runs the root command and returns the process exit code (main should call os.Exit).
@@ -109,10 +142,17 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	inv := &runner.Invocation{}
 	ctx = runner.WithInvocation(ctx, inv)
-	err = root.ExecuteContext(ctx)
-	debug, _ := root.PersistentFlags().GetBool("debug")
+	cmd, err := root.ExecuteContextC(ctx)
+	trace, _ := root.PersistentFlags().GetBool("debug")
 	if err != nil {
-		return runner.RenderFatal(inv, usageError(err), stdout, stderr, debug)
+		if !inv.HasOutputFormat {
+			// Cobra failed before the command recorded its format: honour --format (or
+			// DNP3CTL_OUTPUT_FORMAT) all the same.
+			if f, ok := runner.RequestedFormat(cmd, args); ok {
+				inv.SetOutputFormat(f)
+			}
+		}
+		return runner.RenderFatal(inv, usageError(err), stdout, stderr, trace)
 	}
 	if inv.SuccessExitSet {
 		return inv.SuccessExitCode

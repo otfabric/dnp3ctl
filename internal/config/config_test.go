@@ -213,3 +213,62 @@ func TestListenTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestPreferCommandLine(t *testing.T) {
+	changed := func(flags ...string) func(string) bool {
+		return func(f string) bool {
+			for _, g := range flags {
+				if f == g {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	env := ConnConfig{URL: "tcp://env", IP: "192.0.2.1", Listen: ":20001", Port: 2404}
+	for _, c := range []struct {
+		name            string
+		changed         []string
+		url, ip, listen string
+	}{
+		{"nothing on the command line", nil, "tcp://env", "192.0.2.1", ":20001"},
+		{"--url", []string{"url"}, "tcp://env", "", ""},
+		{"--ip", []string{"ip", "port"}, "", "192.0.2.1", ""},
+		{"--listen", []string{"listen"}, "", "", ":20001"},
+		{"--url and --ip", []string{"url", "ip"}, "tcp://env", "192.0.2.1", ""},
+		{"--port alone", []string{"port"}, "tcp://env", "192.0.2.1", ":20001"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := env
+			cfg.PreferCommandLine(changed(c.changed...))
+			if cfg.URL != c.url || cfg.IP != c.ip || cfg.Listen != c.listen || cfg.Port != 2404 {
+				t.Errorf("%+v", cfg)
+			}
+		})
+	}
+
+	server := ServerConfig{Dial: "tcp://env", Serial: "/dev/ttyS0", Listen: "127.0.0.1", Port: 2404, UDP: true, UDPPeer: "127.0.0.1:1", Allow: []string{"10.0.0.0/8"}}
+	for _, c := range []struct {
+		name         string
+		changed      []string
+		dial, serial string
+		network      bool
+	}{
+		{"nothing on the command line", nil, "tcp://env", "/dev/ttyS0", true},
+		{"--dial", []string{"dial"}, "tcp://env", "", false},
+		{"--serial", []string{"serial"}, "", "/dev/ttyS0", false},
+		{"--port", []string{"port"}, "", "", true},
+		{"--udp-peer", []string{"udp-peer"}, "", "", true},
+		{"--dial and --port", []string{"dial", "port"}, "tcp://env", "", true},
+	} {
+		t.Run("server "+c.name, func(t *testing.T) {
+			cfg := server
+			cfg.PreferCommandLine(changed(c.changed...))
+			network := cfg.Listen != "" && cfg.Port != 0 && cfg.UDP && cfg.UDPPeer != "" && len(cfg.Allow) == 1
+			cleared := cfg.Listen == "" && cfg.Port == 0 && !cfg.UDP && cfg.UDPPeer == "" && cfg.Allow == nil
+			if cfg.Dial != c.dial || cfg.Serial != c.serial || network != c.network || network == cleared {
+				t.Errorf("%+v", cfg)
+			}
+		})
+	}
+}

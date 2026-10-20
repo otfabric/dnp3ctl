@@ -1,5 +1,32 @@
 # dnp3ctl Releases
 
+## v0.6.3
+
+**Date:** 2026-10-20  
+**Previous release:** v0.6.2
+
+### Summary
+
+Four behaviours of the command line and of the simulated outstation follow what the documentation promises: usage errors honour `--format json`, a binary built with `go install` reports its version, a connection style on the command line wins over another one in the environment, and over UDP the event log says `connected` once a master is known. Commands, flags and the JSON shapes are unchanged.
+
+### Changed
+
+- **Usage errors and `--format json`:** an unknown command or flag, a missing required flag or a value a flag cannot hold is now the JSON error object `{"error": {"kind": "usage", "code": "invalid_input", "message": ...}}` on stdout when the invocation asks for JSON, by `--format json` (also `--format=json`, wherever it stands on the command line) or by `DNP3CTL_OUTPUT_FORMAT=json` for a command that has `--format`. It was always the text `error:` line on stderr. The exit code stays 2, and text stays as it was. `server generate-config --format` is the format of the model file it writes, not of a result, so its errors stay text.
+- **Connection styles, environment and command line:** a flag of one connection style on the command line now wins over the environment variables of the others, as for every other flag: `client … --ip` works with `DNP3CTL_URL` set (likewise `--url`, `--listen` with `DNP3CTL_IP`, `DNP3CTL_MASTER_LISTEN`), and `server start --dial` with `DNP3CTL_PORT` or `DNP3CTL_UDP` set (likewise `--serial`, and `--listen`, `--port`, `--udp`, `--udp-peer`, `--allow` with `DNP3CTL_DIAL` or `DNP3CTL_SERIAL`). Two styles both on the command line, or both in the environment, are still refused as mutually exclusive.
+- Docs: README.md, docs/json-output.md, docs/exitcodes.md and docs/server-config.md describe the new behaviour, and say why `server generate-config --format` takes `yaml` or `json`.
+
+### Fixed
+
+- **Version of `go install` binaries:** a binary built without the ldflags of the release (`go install …@v0.6.3`, `go build`) reported version `dev`. It now reports the version the go toolchain records, such as `v0.6.3` (with `go build` in a clone the one it derives from the git tags, such as `v0.6.3+dirty`), and the git commit it records, when there is one; `dev` remains when nothing is recorded, as in a copy without git.
+- **UDP `connected`:** over UDP (`server start --udp`, with one model or several) the event log said `connected` with an empty `remote` as soon as the socket was served, before any master had sent anything. It now says `connected` when the first datagram arrives, naming its sender as `remote` (at once, naming the master, with `--udp-peer`); a socket no master sent to logs neither `connected` nor `disconnected`.
+- **`server start --dial` with `--duration`:** the goroutine that dials the master read the context that `--duration` replaces, a data race the race detector reports; it now gets its context before it starts.
+
+### Upgrade notes
+
+- No breaking changes. A script that read usage errors from stderr while passing `--format json` now finds them on stdout, as every other error.
+
+---
+
 ## v0.6.2
 
 **Date:** 2026-10-20  

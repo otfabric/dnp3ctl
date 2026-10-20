@@ -1,6 +1,6 @@
 # Process exit codes
 
-`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active. A usage error (exit code 2) is always the `error:` line on stderr, also with `--format json`: the invocation is rejected before the command reads `--format`.
+`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` as well: dnp3ctl reads `--format` from the command line, or `DNP3CTL_OUTPUT_FORMAT` for a command that has `--format`, even when the rest of the invocation cannot be parsed, and writes `{"error": {"kind": "usage", "code": "invalid_input", "message": ...}}` on stdout. `server generate-config --format` is the format of the model it writes, not of a result: its errors are always the `error:` line.
 
 | Code | Meaning |
 |------|---------|

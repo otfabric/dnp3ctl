@@ -162,3 +162,45 @@ func (c *ConnConfig) listenTarget(listen string) (Target, error) {
 	}
 	return t, nil
 }
+
+// PreferCommandLine applies the rule that a flag on the command line wins over the
+// environment to the connection styles of a client (--url, --ip, --listen): when any of
+// them is given on the command line, the others are not taken from DNP3CTL_URL, DNP3CTL_IP
+// or DNP3CTL_MASTER_LISTEN. Two styles both on the command line stay mutually exclusive.
+// changed reports whether a flag was given on the command line.
+func (c *ConnConfig) PreferCommandLine(changed func(flag string) bool) {
+	url, ip, listen := changed("url"), changed("ip"), changed("listen")
+	if !url && !ip && !listen {
+		return
+	}
+	if !url {
+		c.URL = ""
+	}
+	if !ip {
+		c.IP = ""
+	}
+	if !listen {
+		c.Listen = ""
+	}
+}
+
+// PreferCommandLine is the rule of [ConnConfig.PreferCommandLine] for the connection
+// styles of a server: dialing the master (--dial), a serial port (--serial) and listening
+// on the network (--listen, --port, --udp, --udp-peer, --allow). When a flag of one of them is given
+// on the command line, the flags of the others are not taken from the environment.
+func (c *ServerConfig) PreferCommandLine(changed func(flag string) bool) {
+	dial, serial := changed("dial"), changed("serial")
+	network := changed("listen") || changed("port") || changed("udp") || changed("udp-peer") || changed("allow")
+	if !dial && !serial && !network {
+		return
+	}
+	if !dial {
+		c.Dial = ""
+	}
+	if !serial {
+		c.Serial = ""
+	}
+	if !network && (dial || serial) {
+		c.Listen, c.Port, c.UDP, c.UDPPeer, c.Allow = "", 0, false, "", nil
+	}
+}
