@@ -1,0 +1,218 @@
+package client
+
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+
+	"github.com/otfabric/dnp3ctl/internal/cli"
+	"github.com/otfabric/dnp3ctl/internal/config"
+	"github.com/otfabric/dnp3ctl/internal/dnp"
+)
+
+func newTimeSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "time-sync",
+		Aliases: []string{"time"},
+		Short:   "Synchronize the clock of an outstation (LAN, non-LAN or a plain write)",
+		Long: `Set the clock of the outstation, which time-stamps its events, and clear its
+NEED_TIME indication.
+
+  --method lan      RECORD_CURRENT_TIME, then WRITE g50v3 with the time that request was
+                    sent: the procedure for networks, where the delay is small (default)
+  --method non-lan  DELAY_MEASURE, then WRITE g50v1 with the current time corrected by half
+                    the round trip minus the outstation's processing delay: the procedure
+                    for serial links
+  --method write    WRITE g50v1 with --time ("now" or an RFC 3339 time), uncorrected
+
+DNP3 time is UTC. THIS CHANGES THE OUTSTATION: the time stamps of its events follow its
+clock. The request is repeated with --retries, as it is safe to repeat.`,
+		Example: `
+  # Synchronize with the LAN procedure
+  dnp3ctl client time-sync --ip 192.168.1.20
+
+  # Over a serial line, with delay compensation
+  dnp3ctl client time-sync --url serial:///dev/ttyUSB0 --method non-lan
+
+  # Set a given time, for a test
+  dnp3ctl client time-sync --ip 192.168.1.20 --method write --time 2026-01-31T12:00:00Z
+`,
+	}
+	cfg := config.TimeSyncConfig{ConnConfig: connDefaults(), Method: dnp.TimeLAN, OutputFormat: text}
+	wire(cmd, &cfg, described("method", dnp.TimeMethods()))
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckTimeSync(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.TimeSync(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newRestartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restart",
+		Short: "Restart an outstation (COLD_RESTART or WARM_RESTART)",
+		Long: `Ask the outstation for a restart and report the time after which it can be polled
+again.
+
+  --type cold  COLD_RESTART: the whole outstation restarts, as after a power cycle
+  --type warm  WARM_RESTART: the DNP3 application restarts
+
+THIS CHANGES THE OUTSTATION: it stops reporting while it restarts, and loses the events it
+has not reported. --type has no default for that reason. The request is sent once.`,
+		Example: `
+  dnp3ctl client restart --ip 192.168.1.20 --type warm
+  dnp3ctl client restart --ip 192.168.1.20 --type cold --format json
+`,
+	}
+	cfg := config.RestartConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg, described("type", dnp.RestartTypes()))
+	cli.MustMarkFlagRequired(cmd, "type")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckRestart(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.Restart(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newUnsolicitedCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "unsolicited",
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+		Short: "Enable or disable unsolicited responses",
+		Long: `Enable or disable the unsolicited responses of an outstation for event classes
+(ENABLE_UNSOLICITED, DISABLE_UNSOLICITED). The setting belongs to this master's
+association: other masters are not affected. "client monitor" enables them by itself.`,
+	}
+	for _, enable := range []bool{true, false} {
+		cmd.AddCommand(newUnsolicitedSubCmd(enable))
+	}
+	return cmd
+}
+
+func newUnsolicitedSubCmd(enable bool) *cobra.Command {
+	use, short := "disable", "Disable unsolicited responses (DISABLE_UNSOLICITED)"
+	if enable {
+		use, short = "enable", "Enable unsolicited responses (ENABLE_UNSOLICITED)"
+	}
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Long: short + `.
+
+--class names the event classes, comma-separated (default 1,2,3).`,
+		Example: `
+  dnp3ctl client unsolicited ` + use + ` --ip 192.168.1.20
+  dnp3ctl client unsolicited ` + use + ` --ip 192.168.1.20 --class 1,2
+`,
+	}
+	cfg := config.UnsolicitedConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg, enum("class", "1", "2", "3"))
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckUnsolicited(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.Unsolicited(ctx, &cfg, enable, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newAssignClassCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "assign-class",
+		Short: "Assign points to an event class (ASSIGN_CLASS)",
+		Long: `Assign the points --object and --range name to the event class --class: 1-3 makes
+them produce events of that class, 0 makes them produce none. The points are still read
+in class 0 polls.
+
+--object takes static objects in their "any variation" form, for example g1 (binary
+inputs), g20 (counters) or g30 (analog inputs). THIS CHANGES THE OUTSTATION: which events
+it reports to every master changes.`,
+		Example: `
+  # All analog inputs to class 2
+  dnp3ctl client assign-class --ip 192.168.1.20 --class 2 --object g30
+
+  # Binary inputs 0-7 to class 1
+  dnp3ctl client assign-class --ip 192.168.1.20 --class 1 --object g1 --range 0-7
+`,
+	}
+	cfg := config.AssignClassConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg, enum("class", "0", "1", "2", "3"))
+	for _, f := range []string{"class", "object"} {
+		cli.MustMarkFlagRequired(cmd, f)
+	}
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckAssignClass(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.AssignClass(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newFreezeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "freeze",
+		Short: "Freeze counters or analog inputs (IMMED_FREEZE, FREEZE_CLEAR)",
+		Long: `Freeze the points --object and --range name: the outstation copies their current
+values into the frozen counters (g21) or frozen analog inputs (g31), with the time of the
+freeze. Read them afterwards with "client read --object g21".
+
+--object defaults to g20 (all counters). --clear resets the counters to zero after the
+freeze (FREEZE_CLEAR); --no-ack sends the no-acknowledgement form, which the outstation
+does not answer.
+
+THIS CHANGES THE OUTSTATION: frozen values are overwritten, and with --clear the counters
+start again from zero. The request is sent once.`,
+		Example: `
+  # Freeze every counter
+  dnp3ctl client freeze --ip 192.168.1.20
+
+  # Freeze and clear counters 0-3
+  dnp3ctl client freeze --ip 192.168.1.20 --object g20 --range 0-3 --clear
+
+  # Freeze the analog inputs
+  dnp3ctl client freeze --ip 192.168.1.20 --object g30
+`,
+	}
+	cfg := config.FreezeConfig{ConnConfig: connDefaults(), OutputFormat: text}
+	wire(cmd, &cfg)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckFreeze(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.Freeze(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
+
+func newAttributesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "attributes",
+		Aliases: []string{"attrs", "info"},
+		Short:   "Read the device attributes of an outstation (group 0)",
+		Long: `Read the device attributes of set 0: manufacturer, product, software and hardware
+version, serial number, point counts and the other attributes of IEEE 1815-2012
+Table 11-11 the outstation supports.
+
+--variation selects what is read: all (default), list (the list of the attribute
+variations the outstation supports, with whether each is writable), a variation number
+or a name such as manufacturer, product, software-version or serial-number.`,
+		Example: `
+  dnp3ctl client attributes --ip 192.168.1.20
+  dnp3ctl client attributes --ip 192.168.1.20 --variation list
+  dnp3ctl client attributes --ip 192.168.1.20 --variation manufacturer --format json
+`,
+	}
+	cfg := config.AttributesConfig{ConnConfig: connDefaults(), Variation: "all", OutputFormat: text}
+	names := make([]string, 0, len(dnp.AttributeNames))
+	for _, n := range dnp.AttributeNames {
+		names = append(names, n)
+	}
+	wire(cmd, &cfg, enum("variation", names...))
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
+			func() error { return dnp.CheckAttributes(&cfg) },
+			func(ctx context.Context) (any, error) { return dnp.Attributes(ctx, &cfg, cmd.ErrOrStderr()) })
+	}
+	return cmd
+}
