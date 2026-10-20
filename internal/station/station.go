@@ -575,7 +575,7 @@ func (st *Station) run(t server.PointType, p PointSpec) {
 			}
 			next = v
 		case app.Counter:
-			v.Value, v.Time = uint32(int64(v.Value)+int64(step)), 0
+			v.Value, v.Time = counterValue(s, v.Value, n, step), 0
 			next = v
 		case app.Analog:
 			v.Value, v.Time = simValue(s, v.Value, n, step), 0
@@ -585,6 +585,23 @@ func (st *Station) run(t server.PointType, p PointSpec) {
 			_ = db.Update(t, p.Index, next, server.EventOnChange)
 		}
 	}
+}
+
+// counterValue returns the next value of a simulated counter: count adds step and wraps
+// past 4 294 967 295 to 0; ramp, sine and random follow simValue, rounded to a whole
+// number the counter can hold.
+func counterValue(s *SimSpec, cur uint32, n int, step float64) uint32 {
+	if !strings.EqualFold(s.Mode, "ramp") && !strings.EqualFold(s.Mode, "sine") && !strings.EqualFold(s.Mode, "random") {
+		return uint32(int64(cur) + int64(step))
+	}
+	v := math.Round(simValue(s, float64(cur), n, step))
+	switch {
+	case v <= 0:
+		return 0
+	case v >= math.MaxUint32:
+		return math.MaxUint32
+	}
+	return uint32(v)
 }
 
 // simValue returns the next value of a numeric simulation.

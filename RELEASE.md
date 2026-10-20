@@ -1,5 +1,34 @@
 # dnp3ctl Releases
 
+## v0.6.2
+
+**Date:** 2026-10-20  
+**Previous release:** v0.6.1
+
+### Summary
+
+dnp3ctl moves to [go-dnp3](https://github.com/otfabric/go-dnp3) v1.3.1, a documentation-only release, and its documentation has been reviewed claim by claim against the code before the repository goes public. Two behaviours of the simulated outstation are fixed: simulated counters follow `ramp`, `sine` and `random`, and with several outstations over UDP the event log names the master. Commands, flags and JSON output are unchanged.
+
+### Changed
+
+- go-dnp3 v1.3.1 (documentation only, no API change).
+- Docs, reviewed for going public:
+  - **README.md:** the install commands unpack into an emptied folder and install the binary by its exact name, so that an update cannot install an older binary left behind, and stop on an unsupported architecture (also on macOS); building from source names the tools `make build` needs and the plain `go build`; the required flags of every command, the connection styles staying exclusive across environment and flags, the defaults per command in the environment table, the command aliases and the undocumented flags (`client objects --group`/`--events`, the file commands' `--permissions`, `--block-size`, `--file-password-file`, `file get --force`/`--output`, `server generate-config --force`/`--format`, `server start --format`); the BCD and unsigned integer read example (`--object g101v1,g102v1`), a FREEZE_AT_TIME example in the future, the commands that change an outstation, the comparison table worded as typical per category, the interop stacks (with dnp3py) and the project structure.
+  - **docs/server-config.md:** the main example model validates (it lacked binary output 0, and its `events.csv` must exist); what reads of unsupported objects and of point types without points answer; which attribute writes are refused; the Secure Authentication statistics and reply timeout flags; `--max-sessions`; double-bit values in YAML need no quotes.
+  - **docs/json-output.md, docs/exitcodes.md:** usage errors (exit code 2) are always a text `error:` line on stderr, also with `--format json`, with code `invalid_input`; the IIN order (`NEED_TIME|DEVICE_RESTART`); `CHATTER_FILTER` for double-bit inputs and `BIT5`-`BIT7` for unnamed flags; `controls` among the arrays.
+  - **SECURITY.md:** supported versions (0.6.x); the security statistic flags; DSC Systems' go-dnp3 linked. **CONTRIBUTING.md:** the release notes rule and the full list of client commands. **RELEASE.md:** the linux/armv7 compile error of v0.5.0 never shipped, and is listed under Quality.
+
+### Fixed
+
+- **Simulated counters:** a `counter` or `frozen-counter` with `simulate` mode `ramp`, `sine` or `random` counted up by `step` like `count`; it now follows its mode, rounded to a whole number the counter can hold (0 … 4 294 967 295).
+- **Several outstations over UDP:** with more than one `--config` and `--udp`, the event log named the server's own socket as `remote` of every event; it now names the master the last datagram came from, as with one outstation.
+
+### Upgrade notes
+
+- No breaking changes. A model that simulates a counter with `ramp`, `sine` or `random` now gets values between `min` and `max` instead of a count.
+
+---
+
 ## v0.6.1
 
 **Date:** 2026-10-20  
@@ -78,10 +107,6 @@ dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.1.0 added
 - The simulated outstation refuses writes of device attributes of set 0 other than the user-assigned ones the model gives; it accepted every write before.
 - Docs name the DSC Systems library "DSC go-dnp3", as dnp3-interop does, and the interop note refers to dnp3-interop v0.4.1 (contract 1.3).
 
-### Fixed
-
-- **The linux/armv7 build:** a range check of the outstation model compared an `int` with 4294967295, which does not compile where `int` has 32 bits; whole numbers that do not fit an `int` on such platforms are now accepted as well. `make check` now typechecks for 32-bit targets (`make cross`).
-
 ### Upgrade notes
 
 - No breaking changes to commands, flags or JSON output; the JSON gains `broadcast`, `interval`, `set`, `attribute`, `append`, `function` and `value` fields where they apply, and `client operate` gains `controls` (and `error` for a partial result).
@@ -90,6 +115,7 @@ dnp3ctl exposes what [go-dnp3](https://github.com/otfabric/go-dnp3) v1.1.0 added
 ### Quality
 
 - Every changed line is covered by tests, end to end against the simulated outstation: broadcast controls and freezes, scheduled freezes (also the refusal of a time that has passed), attribute sets read and written (writable and not), set-0 writes, append, deadbands read and written, several controls (all succeeded, partly refused, refused at select), every management function and a refused one, indications and clearing the restart indication, the debug log of both roles.
+- `make check` now typechecks for 32-bit targets (`make cross`).
 
 ---
 

@@ -71,10 +71,15 @@ func (f *Fleet) Serve(l net.Listener) error {
 	return f.stations[0].Serve(l)
 }
 
-// ServeUDP serves DNP3 over UDP on pc until Close.
+// ServeUDP serves DNP3 over UDP on pc until Close. As for one outstation, the event log of
+// every outstation names the master the last datagram came from as the remote.
 func (f *Fleet) ServeUDP(pc net.PacketConn) error {
 	if f.group != nil {
-		return f.group.ServeUDP(pc)
+		pp := f.stations[0].watchUDP(pc, nil)
+		for _, st := range f.stations[1:] {
+			st.udp.Store(pp)
+		}
+		return f.group.ServeUDP(pp)
 	}
 	return f.stations[0].ServeUDP(pc)
 }

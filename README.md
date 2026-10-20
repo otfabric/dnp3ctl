@@ -12,7 +12,7 @@ It is built for commissioning and site acceptance tests, point-to-point checks, 
 
 **Quick links:** [Quick start](#quick-start) · [Features](#features) · [Installation](#installation) · [DNP3 in two minutes](#dnp3-in-two-minutes) · [Connecting](#connecting-to-an-outstation) · [Commands](#common-commands) · [Simulated outstation](#simulate-an-outstation) · [FAQ](#faq)
 
-> **Responsible use:** dnp3ctl sends real SCADA requests. Only use it on outstations and networks you own or are authorized to test. `client operate` operates breakers and changes set-points, `client restart`, `client time-sync`, `client freeze` and `client assign-class` change the outstation itself, and `client file put` can deliver a configuration: know what an index controls before you send to it. An outstation discards the events a master has read: polling an outstation that is in service with its master's link address takes those events away from it.
+> **Responsible use:** dnp3ctl sends real SCADA requests. Only use it on outstations and networks you own or are authorized to test. `client operate` operates breakers and changes set-points; `client restart`, `time-sync`, `freeze`, `assign-class`, `manage`, `write-attribute`, `write-deadband`, `clear-restart` and `unsolicited` change the outstation itself, and `client file put` and `rm` change its files (see [SECURITY.md](SECURITY.md#commands-that-change-an-outstation)): know what an index controls before you send to it. An outstation discards the events a master has read: polling an outstation that is in service with its master's link address takes those events away from it.
 
 ---
 
@@ -85,18 +85,20 @@ Points are numbers: the **object** (`g30v5`: group 30, analog input, variation 5
 
 ## How it compares
 
-DNP3 test tools are mostly graphical: protocol test harnesses and simulators with a window per channel, many of them commercial and Windows-only. Protocol libraries are the other end of the range: they do everything, once you have written a program. dnp3ctl sits in between.
+DNP3 test tools are mostly graphical: protocol test harnesses and simulators with a window per channel. Protocol libraries are the other end of the range: they do everything, once you have written a program. dnp3ctl sits in between.
 
 | | dnp3ctl | GUI test tools and simulators | Protocol libraries | Wireshark |
 |---|:---:|:---:|:---:|:---:|
 | Poll, monitor, operate without writing code | ✅ | ✅ | — | — |
-| Works over SSH, on a headless gateway or a jump host | ✅ | — | ✅ | partial (tshark) |
+| Works over SSH, on a headless gateway or a jump host | ✅ | varies | ✅ | partial (tshark) |
 | Scriptable: JSON output, exit codes, environment variables | ✅ | rarely | ✅ (it is code) | partial |
 | Simulate an outstation from a text file | ✅ | ✅ | with code | — |
 | Serial lines and UDP as well as TCP and TLS | ✅ | ✅ | most | — |
-| Runs in CI, in a container, on a Raspberry Pi | ✅ | — | ✅ | ✅ |
+| Runs in CI, in a container, on a Raspberry Pi | ✅ | varies | ✅ | ✅ |
 | Decodes traffic between two other parties | — | some | — | ✅ |
-| Single static binary, Linux / macOS / Windows | ✅ | — | — | — |
+| Single self-contained binary, Linux / macOS / Windows | ✅ | varies | — | — |
+
+Typical capabilities by category; individual products vary.
 
 They combine well: use dnp3ctl to drive and check an outstation from the command line, a GUI tool when you want to click through a point list, and Wireshark when you need to see what two other devices say to each other.
 
@@ -163,7 +165,7 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
 | Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
 | Robustness       | Timeouts per fragment and per request, retries of the requests that are safe to repeat (never controls), reconnects in `monitor`. |
-| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. |
+| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. `server generate-config --format` picks `yaml` or `json`. |
 | `--debug`        | Trace every link frame and application fragment sent and received, decoded, to stderr.                                   |
 | Completion       | Shell completion for bash, zsh, fish and PowerShell; flags with a fixed set of values (**`--format`**, **`--mode`**, **`--op`**, **`--object`**, …) complete to those values. |
 
@@ -212,7 +214,7 @@ The easiest way to install dnp3ctl is to download a pre-built binary from the [G
 |---|---|---|
 | Linux | x86-64 | `dnp3ctl-<version>-linux-amd64.tar.gz` |
 | Linux | 64-bit ARM (Raspberry Pi 4/5 with a 64-bit OS, AWS Graviton) | `dnp3ctl-<version>-linux-arm64.tar.gz` |
-| Linux | 32-bit ARM (Raspberry Pi with a 32-bit OS) | `dnp3ctl-<version>-linux-armv7.tar.gz` |
+| Linux | 32-bit ARM, ARMv7 (Raspberry Pi 2 and later with a 32-bit OS) | `dnp3ctl-<version>-linux-armv7.tar.gz` |
 | macOS | Apple Silicon (M1 and later) | `dnp3ctl-<version>-darwin-arm64.tar.gz` |
 | macOS | Intel | `dnp3ctl-<version>-darwin-amd64.tar.gz` |
 | Windows | x86-64 | `dnp3ctl-<version>-windows-amd64.zip` |
@@ -233,7 +235,7 @@ case "$(uname -m)" in
   x86_64)         ARCH=amd64 ;;
   aarch64|arm64)  ARCH=arm64 ;;
   armv7l)         ARCH=armv7 ;;
-  *) echo "Unsupported architecture: $(uname -m)" ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
 # 2. Download the archive and the checksum file
@@ -246,15 +248,15 @@ curl -fsSLO "${BASE}/dnp3ctl-${VERSION}-checksums.txt"
 grep "${FILE}" "dnp3ctl-${VERSION}-checksums.txt" | sha256sum -c -
 
 # 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
-sudo install -m 0755 "$(find dnp3ctl-dl -type f -name 'dnp3ctl*' | head -n1)" /usr/local/bin/dnp3ctl
+rm -rf dnp3ctl-dl && mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
+sudo install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-linux-${ARCH}" /usr/local/bin/dnp3ctl
 ```
 
 No `sudo`? Install into your home directory instead (and make sure `~/.local/bin` is in your `PATH`):
 
 ```bash
 mkdir -p ~/.local/bin
-install -m 0755 "$(find dnp3ctl-dl -type f -name 'dnp3ctl*' | head -n1)" ~/.local/bin/dnp3ctl
+install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-linux-${ARCH}" ~/.local/bin/dnp3ctl
 ```
 
 To use a serial port without root, add yourself to the group that owns it (`dialout` on Debian and Ubuntu, `uucp` on Arch), then log in again.
@@ -267,6 +269,7 @@ VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfa
 case "$(uname -m)" in
   arm64)   ARCH=arm64 ;;
   x86_64)  ARCH=amd64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
 # 2. Download the archive and the checksum file
@@ -279,8 +282,8 @@ curl -fsSLO "${BASE}/dnp3ctl-${VERSION}-checksums.txt"
 grep "${FILE}" "dnp3ctl-${VERSION}-checksums.txt" | shasum -a 256 -c -
 
 # 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
-sudo install -m 0755 "$(find dnp3ctl-dl -type f -name 'dnp3ctl*' | head -n1)" /usr/local/bin/dnp3ctl
+rm -rf dnp3ctl-dl && mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
+sudo install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-darwin-${ARCH}" /usr/local/bin/dnp3ctl
 ```
 
 If you downloaded the archive with a web browser instead of `curl` and macOS refuses to run the binary ("cannot be verified"), remove the quarantine flag: `xattr -d com.apple.quarantine /usr/local/bin/dnp3ctl`.
@@ -307,9 +310,9 @@ if ($expected -ne $actual) { throw "Checksum mismatch for $file" }
 #    (the .exe in the archive carries the version and platform in its name)
 $dir = "$env:LOCALAPPDATA\Programs\dnp3ctl"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
+Remove-Item -Recurse -Force "$env:TEMP\dnp3ctl-dl" -ErrorAction SilentlyContinue
 Expand-Archive "$env:TEMP\$file" -DestinationPath "$env:TEMP\dnp3ctl-dl" -Force
-$exe = Get-ChildItem "$env:TEMP\dnp3ctl-dl" -Recurse -Filter 'dnp3ctl*.exe' | Select-Object -First 1
-Copy-Item $exe.FullName "$dir\dnp3ctl.exe" -Force
+Copy-Item "$env:TEMP\dnp3ctl-dl\dnp3ctl-$version-windows-$arch.exe" "$dir\dnp3ctl.exe" -Force
 
 # 5. Add dnp3ctl to your user PATH (then open a new terminal)
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -328,7 +331,7 @@ If Windows SmartScreen warns about an unrecognised app, choose **More info → R
 
 ### Update
 
-Run the same commands again. They always fetch the latest release and overwrite the previous binary.
+Run the same commands again. They always fetch the latest release, unpack it into an emptied `dnp3ctl-dl` folder and overwrite the previous binary.
 
 ### Build from source
 
@@ -340,7 +343,7 @@ cd dnp3ctl
 make build
 ```
 
-`make build` runs the checks and writes the binary to **`bin/dnp3ctl`** (see [Building](#building)). With a Go toolchain you can also install straight from the module:
+`make build` runs `make check` first, which needs `staticcheck`, `golangci-lint` and `govulncheck` on your `PATH`, and writes the binary to **`bin/dnp3ctl`** (see [Building](#building)). Without those tools, `go build -o bin/dnp3ctl .` builds it alone. With a Go toolchain you can also install straight from the module (a binary built with `go install` or a plain `go build` reports version `dev`):
 
 ```console
 go install github.com/otfabric/dnp3ctl@latest
@@ -401,20 +404,20 @@ dnp3ctl discover
 dnp3ctl version
 ```
 
-Every command has `--help`, with a description and examples.
+Every command has `--help`, with a description and examples. Some have a shorter name as well: `client integrity` (`poll`), `control` (`operate`), `time` (`time-sync`), `attrs` or `info` (`attributes`), and `client file list` or `dir` (`ls`), `stat` (`info`), `download` (`get`), `upload` (`put`), `delete` or `del` (`rm`).
 
 **Global flag:** `--debug` — trace every link frame and application fragment sent and received to stderr, decoded, and print the chain of causes after an error.
 
-**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_OUTPUT_FORMAT`**. It controls **only** the result on **stdout**. Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
+**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_OUTPUT_FORMAT`**. It controls **only** the result on **stdout** (`server generate-config --format` picks `yaml` or `json` for the model instead). Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
 
-**Streams:** `client monitor`, `client ping` and `server start` write one record as it happens: one line (**text**), one JSON object per line (**json**, JSON Lines) or one table row (**table**). They run until interrupted with Ctrl-C, which ends them normally.
+**Streams:** `client monitor`, `client ping` and `server start` write one record as it happens: one line (**text**), one JSON object per line (**json**, JSON Lines) or one table row (**table**). They run until interrupted with Ctrl-C, which ends them normally; `client ping` stops after `--count` measurements (default 4; `--count 0` runs until interrupted), `client monitor` after `--count` values or `--duration` seconds when given, `server start` after `--duration`.
 
-**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure (fields `kind`, `code`, `message`); with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. Exit codes are stable:
+**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure, `{"error": {"kind", "code", "message"}}`; with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. A usage error (exit code 2) is always the text `error:` line on stderr, also with `--format json`. Exit codes are stable:
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 2 | Usage: unknown command or flag, missing required flag |
+| 2 | Usage: unknown command or flag, missing required flag, a value a flag cannot hold |
 | 3 | Invalid input: nothing was sent |
 | 4 | Transport: cannot connect, connection lost, TLS failure |
 | 5 | Timeout: no answer |
@@ -531,10 +534,10 @@ dnp3ctl client read --ip 192.168.1.20 --object g34v1
 dnp3ctl client read --ip 192.168.1.20 --object g50v4
 
 # BCD and unsigned integer points (g101, g102)
-dnp3ctl client read --ip 192.168.1.20 --object g101
+dnp3ctl client read --ip 192.168.1.20 --object g101v1,g102v1
 ```
 
-`dnp3ctl client objects` lists every object and variation; `--object` completes to them in the shell.
+`dnp3ctl client objects` lists every object and variation (`--group 30` the variations of one group, `--events` the event objects only); `--object` completes to them in the shell.
 
 #### Monitor events
 
@@ -617,8 +620,8 @@ dnp3ctl client assign-class --ip 192.168.1.20 --class 2 --object g30 --range 0-7
 dnp3ctl client freeze --ip 192.168.1.20
 dnp3ctl client freeze --ip 192.168.1.20 --object g20 --range 0-3 --clear
 
-# Freeze at midnight and every hour from then on (FREEZE_AT_TIME)
-dnp3ctl client freeze --ip 192.168.1.20 --at 2026-02-01T00:00:00Z --interval 1h
+# Freeze at midnight UTC on 1 January 2027 and every hour from then on (FREEZE_AT_TIME)
+dnp3ctl client freeze --ip 192.168.1.20 --at 2027-01-01T00:00:00Z --interval 1h
 ```
 
 #### Broadcast
@@ -692,6 +695,8 @@ dnp3ctl client file rm --ip 192.168.1.20 --path /config/old.xml
 DNP3CTL_FILE_PASSWORD=… dnp3ctl client file ls --ip 192.168.1.20 --file-user engineer
 ```
 
+`file ls` lists `/` without `--path`. `file get` writes to the base name of `--path` in the current directory, or to `--output` (`-` for stdout), and does not overwrite an existing file without `--force`. `file put --permissions` sets the permissions of the new file (octal `644` or `rw-r--r--`, the default). `--block-size` limits the blocks asked for or sent (by default the outstation chooses), and `--file-password-file` reads the password of `--file-user` from a file.
+
 #### Find outstations
 
 ```console
@@ -710,7 +715,7 @@ The probe sends one link layer REQUEST_LINK_STATUS per link address and waits fo
 # The built-in demo outstation on port 20000
 dnp3ctl server start
 
-# Write its model, edit it, serve it
+# Write its model (as YAML with comments, or --format json), edit it, serve it
 dnp3ctl server generate-config --output outstation.yaml
 dnp3ctl server start --config outstation.yaml
 
@@ -775,8 +780,8 @@ What it does:
 - **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE; `status` answers every control with a refusal of your choice, to test a master. An output with `command_event_class` reports every executed control as a **command event** (g13, g43) with the commanded value and the status.
 - **Serves times and intervals** (`time-and-interval` points, g50v4): a time with a repeat interval, such as a schedule, read by group and variation.
 - **Changes values by itself** where the model says `simulate` (`toggle`, `ramp`, `sine`, `random`, `count`), producing events of the point's class with the outstation's time.
-- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes (also scheduled with FREEZE_AT_TIME), reads of deadbands (g34), device attributes of set 0 and of further `attribute_sets` (with writable variations), writes of deadbands, the management functions (accepted, or refused where the model lists them), broadcasts, and file transfer with uploads and appends. `indications` in the model sets LOCAL_CONTROL, DEVICE_TROUBLE or CONFIG_CORRUPT, to test how a master reacts.
-- **With Secure Authentication** challenges critical requests, accepts aggressive mode, and keeps the **security statistics** per master (g121, events g122 in class 1).
+- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes (also scheduled with FREEZE_AT_TIME), reads of deadbands (g34), device attributes of set 0 and of further `attribute_sets` (with writable variations), writes of deadbands, the management functions (accepted, or refused where `refused_functions` lists them), broadcasts, and file transfer with uploads and appends. `indications` in the model (`local-control`, `device-trouble`, `config-corrupt`) sets LOCAL_CONTROL, DEVICE_TROUBLE or CONFIG_CORRUPT, to test how a master reacts.
+- **With Secure Authentication** challenges critical requests, accepts aggressive mode, and keeps the **security statistics** per master (g121, events g122 in class 1 by default).
 
 Every event is written to stdout as it happens:
 
@@ -809,6 +814,9 @@ Every event is written to stdout as it happens:
 | `--sa-update-key-file`, `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5, with session key change by this update key, or with this pre-shared session key (or `DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`) |
 | `--link-confirmed`, `--link-timeout`, `--link-retries`, `--keep-alive` | As for the client |
 | `--duration` | Stop after this many seconds, for use in test pipelines |
+| `--format` | The event log on stdout: `text` (default), `json` (JSON Lines) or `table` |
+
+`server generate-config` writes to stdout, or to `--output`, which it does not overwrite without `--force`.
 
 The full reference of the model is in [docs/server-config.md](docs/server-config.md). The server listens on all interfaces and accepts any client unless told otherwise: see [SECURITY.md](SECURITY.md).
 
@@ -816,7 +824,7 @@ The full reference of the model is in [docs/server-config.md](docs/server-config
 
 ## Environment Variable Configuration
 
-Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** (`--object` of `client read`, `--type` and `--index` of `client operate`, `--type` of `client restart`, `--path` of the file commands) must still be given on the command line. The global flag `--debug` has no environment variable.
+Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** must still be given on the command line: `--object` (`client read`, `assign-class`), `--type` and `--index` (`operate`), `--type` (`restart`), `--class` (`assign-class`), `--function` (`manage`), `--variation` and `--value` (`write-attribute`), `--index` and `--value` (`write-deadband`), `--path` (`client file info`, `get`, `put`, `rm`; not `ls`, which lists `/`), `--input` (`file put`) and `--subnets` (`discover`). The connection styles stay mutually exclusive across the environment and the flags: with `DNP3CTL_URL` set, `--ip` or `--listen` is refused; unset it, or override it with `--url` (likewise `DNP3CTL_IP` and `DNP3CTL_MASTER_LISTEN` with the other styles). The global flag `--debug` has no environment variable.
 
 Three secrets are read **only** from the environment or a file, never from a flag: `DNP3CTL_SA_UPDATE_KEY` and `DNP3CTL_SA_KEY` (the Secure Authentication keys, as hex; or `--sa-update-key-file`, `--sa-key-file`) and `DNP3CTL_FILE_PASSWORD` (the password of `--file-user`; or `--file-password-file`).
 
@@ -835,7 +843,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_ALLOW** | strings | **server start**: Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any) | `--allow` |  |
 | **DNP3CTL_APPEND** | bool | **client file put**: Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode) | `--append` |  |
 | **DNP3CTL_ASSIGN_CLASS** | uint8 | **client assign-class**: Class to assign, 0-3 (0 = no events) | `--class` |  |
-| **DNP3CTL_ATTRIBUTE** | string | **client attributes**: Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or, in set 0, a name such as manufacturer; **client write-attribute**: Attribute to write: a variation number 1-253 or, in set 0, a name such as location | `--variation` | all |
+| **DNP3CTL_ATTRIBUTE** | string | **client attributes**: Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or, in set 0, a name such as manufacturer; **client write-attribute**: Attribute to write: a variation number 1-253 or, in set 0, a name such as location | `--variation` | all (attributes); required for write-attribute |
 | **DNP3CTL_ATTRIBUTE_SET** | uint16 | **client attributes**, **client write-attribute**: Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation | `--set` |  |
 | **DNP3CTL_ATTRIBUTE_TYPE** | string | **client write-attribute**: Data type of the value: vstr (visible string), uint, int or float | `--data-type` | vstr |
 | **DNP3CTL_ATTRIBUTE_VALUE** | string | **client write-attribute**: Value to write | `--value` |  |
@@ -846,7 +854,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_CONFIG** | strings | **server start**: Outstation model file (YAML or JSON); without it a built-in demo outstation is served. Give it several times (or comma-separated) to serve several outstations, each at its own link address, behind the same port, serial line or UDP socket | `--config` |  |
 | **DNP3CTL_CONFIG_FORMAT** | string | **server generate-config**: Format of the model: yaml or json | `--format` | yaml |
 | **DNP3CTL_CONTROL_TYPE** | string | **client operate**: Control: crob (control relay output block, g12v1) or analog (analog output block, g41) | `--type` |  |
-| **DNP3CTL_COUNT** | uint32 | **client read**: Read at most this many objects (events); cannot be combined with --range; **client monitor**: Stop after this many values (0 = until interrupted); **client ping**: Number of delay measurements before exiting (0 = until interrupted) | `--count` | 4 |
+| **DNP3CTL_COUNT** | uint32 | **client read**: Read at most this many objects (events); cannot be combined with --range; **client monitor**: Stop after this many values (0 = until interrupted); **client ping**: Number of delay measurements before exiting (0 = until interrupted) | `--count` | 4 (ping); 0 (read, monitor) |
 | **DNP3CTL_DATA_BITS** | uint8 | every client command, **server start**: Serial data bits, 5-8 (0 = 8) | `--data-bits` |  |
 | **DNP3CTL_DEADBAND** | string | **client write-deadband**: The deadband: a number of 0 or more | `--value` |  |
 | **DNP3CTL_DEADBAND_INDEX** | string | **client write-deadband**: Analog inputs whose deadband is written: an index, or several comma-separated | `--index` |  |
@@ -856,7 +864,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_DURATION** | uint32 | **client monitor**, **server start**: Stop after this many seconds (0 = until interrupted) | `--duration` |  |
 | **DNP3CTL_EVENTS** | bool | **client objects**: Only list event objects | `--events` |  |
 | **DNP3CTL_FILE_PASSWORD_FILE** | string | **client file ls**, **client file get**, **client file put**, **client file rm**: File holding the password of --file-user | `--file-password-file` |  |
-| **DNP3CTL_FILE_PATH** | string | **client file ls**: Directory to list; **client file info**: File or directory on the outstation; **client file get**: File on the outstation; **client file put**: File to create on the outstation; **client file rm**: File to delete on the outstation | `--path` | / |
+| **DNP3CTL_FILE_PATH** | string | **client file ls**: Directory to list; **client file info**: File or directory on the outstation; **client file get**: File on the outstation; **client file put**: File to create on the outstation; **client file rm**: File to delete on the outstation | `--path` | / (file ls); required elsewhere |
 | **DNP3CTL_FILE_USER** | string | **client file ls**, **client file get**, **client file put**, **client file rm**: User name to authenticate file operations with (AUTHENTICATE_FILE); the password comes from --file-password-file or DNP3CTL_FILE_PASSWORD | `--file-user` |  |
 | **DNP3CTL_FORCE** | bool | **client file get**: Overwrite an existing --output file; **server generate-config**: Overwrite an existing file | `--force` |  |
 | **DNP3CTL_FREEZE_AT** | string | **client freeze**: Freeze at this time instead of at once (FREEZE_AT_TIME): an RFC 3339 time such as 2026-01-31T12:00:00Z | `--at` |  |
@@ -886,7 +894,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_OPERATE_INDEX** | string | **client operate**: Point index of the output, or several comma-separated (0,1,4) for several controls in one request | `--index` |  |
 | **DNP3CTL_OPERATE_MODE** | string | **client operate**: Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response) | `--mode` | sbo |
 | **DNP3CTL_OP_COUNT** | uint8 | **client operate**: Number of times a crob is executed | `--count` | 1 |
-| **DNP3CTL_OUTPUT** | string | **client file get**: File to write the content to (- = stdout; default: the base name of --path); **server generate-config**: File to write the model to (- = stdout) | `--output` | - |
+| **DNP3CTL_OUTPUT** | string | **client file get**: File to write the content to (- = stdout; default: the base name of --path); **server generate-config**: File to write the model to (- = stdout) | `--output` | - (generate-config); base name of --path (file get) |
 | **DNP3CTL_OUTPUT_FORMAT** | string | every client command, **client objects**, **discover**: Output format: text, json, or table; **server start**: Format of the event log on stdout: text, json, or table | `--format` | text |
 | **DNP3CTL_OUTSTATION** | uint16 | Link address of the outstation | `--outstation` | 10 |
 | **DNP3CTL_OUTSTATIONS** | strings | **discover**: Link addresses to send the probe to, comma-separated; 65532 is the self address, which outstations that support it answer whatever their own address | `--outstations` | [10,65532] |
@@ -895,7 +903,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_PERMISSIONS** | string | **client file put**: Permissions of the new file: octal (644) or rwx form (rw-r--r--) | `--permissions` |  |
 | **DNP3CTL_POLL_INTERVAL** | uint32 | **client monitor**: Also poll the events of classes 1-3 every this many seconds (0 = do not poll) | `--poll-interval` |  |
 | **DNP3CTL_POLL_MODE** | string | **client poll**: What to read: integrity (events of classes 1-3, then the static data of class 0), event (events of --class) or class (exactly the classes of --class, 0 included) | `--mode` | integrity |
-| **DNP3CTL_PORT** | uint16 | every client command: Outstation TCP port (used when --url is not set), or the port of --listen; **server start**: Port to listen on (0 = 20000, or 19999 with TLS) | `--port` | 20000 |
+| **DNP3CTL_PORT** | uint16 | every client command: Outstation TCP port (used when --url is not set), or the port of --listen; **server start**: Port to listen on (0 = 20000, or 19999 with TLS) | `--port` | 20000 (client); server start: 20000, 19999 with TLS |
 | **DNP3CTL_PORTS** | strings | **discover**: TCP ports to probe | `--ports` | [20000] |
 | **DNP3CTL_RANGE** | string | **client read**: Point indexes to read: a range (0-9), a list (1,4,7) or empty for all points; **client assign-class**, **client freeze**: Point indexes: a range (0-9), a list (1,4,7) or empty for all points | `--range` |  |
 | **DNP3CTL_RESPONSE_TIMEOUT** | uint32 | Wait in milliseconds for each fragment of a response (0 = 5000) | `--response-timeout` |  |
@@ -973,7 +981,7 @@ The outstation answered with values and set an error bit in its internal indicat
 
 ### Which outstations and stacks has it been tested with?
 
-The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3 and DSC go-dnp3, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.4.1, contract 1.3: among others device attribute sets, broadcast, freeze at time, deadbands and file append). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
+The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3, DSC go-dnp3 and dnp3py, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.4.1, contract 1.3: among others device attribute sets, broadcast, freeze at time, deadbands and file append). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 
@@ -1001,7 +1009,7 @@ Pass `--format json` (or set `DNP3CTL_OUTPUT_FORMAT=json`). Progress goes to std
 ```console
 dnp3ctl/
 ├── cmd/ (root command, version, completion)
-│   ├── client (poll, read, monitor, operate, time-sync, restart, unsolicited, assign-class, freeze, attributes, ping, file, objects)
+│   ├── client (poll, read, monitor, operate, time-sync, restart, unsolicited, assign-class, freeze, attributes, write-attribute, write-deadband, manage, clear-restart, ping, file, objects)
 │   ├── discover (subnet discovery)
 │   └── server (start, generate-config)
 ├── internal/

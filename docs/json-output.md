@@ -9,12 +9,12 @@ These conventions are a **stable contract** for scripting. Field names are snake
 | Outstation | `target`: the URL of the outstation (`tcp://host:20000`, `tls://host:19999`, `udp://host:20000`, `serial:///dev/ttyUSB0`); with `--listen` the address the outstation connected from (`tcp://10.0.0.7:53122`); `outstation`: its link address (number) |
 | Object | `object` (`"g30v5"`), with `group` and `variation` (numbers) where a value is reported |
 | Point index | `index` (number) |
-| Internal indications | `iin`: the set IIN bits of the last response fragment joined with `\|` (`"DEVICE_RESTART\|NEED_TIME"`), `""` when none is set |
+| Internal indications | `iin`: the set IIN bits of the last response fragment joined with `\|` (`"NEED_TIME\|DEVICE_RESTART"`), `""` when none is set |
 | Times | RFC 3339 in UTC with milliseconds. `timestamp` is the time the outstation stamped an event or freeze with; `received_at` is when a value arrived |
 | Durations | `duration_ms`, `rtt_ms`, `delay_ms`, `processing_ms` (numbers, milliseconds with fractions) |
-| Repeated rows | `measurements`, `attributes`, `entries`, `objects`, `devices`: **arrays of objects**, empty arrays rather than null |
+| Repeated rows | `measurements`, `attributes`, `entries`, `objects`, `devices`, `controls` (client operate): **arrays of objects**, empty arrays rather than null |
 | A failure inside a result | `error` object (`kind`, `code`, `message`); omitted when there is none |
-| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md) |
+| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md). A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) is always a text `error:` line on stderr, also with `--format json` |
 
 ## Measurement
 
@@ -27,7 +27,7 @@ One point value or event as an outstation reported it. Used by `client poll`, `r
 | `index` | the point index |
 | `event` | `true` for an object of an event group (g2, g4, g11, g13, g22, g23, g32, g33, g42, g43, g111, g122); omitted otherwise |
 | `value` | boolean for binary points; string for double-bit inputs (`"off"`, `"on"`, `"intermediate"`, `"indeterminate"`) and octet strings (the text when it is printable, otherwise `"0x…"` hex); the time of a time and interval (RFC 3339); number for counters, analog values, BCD (the digits read as a decimal number: `0x1234` is `1234`) and unsigned integers, and security statistics. A value sent in a single-precision variation is the shortest decimal that variation holds (`11.02`) |
-| `flags` | the quality flags that are set, joined with `\|`: `ONLINE`, `RESTART`, `COMM_LOST`, `REMOTE_FORCED`, `LOCAL_FORCED`, and by type `CHATTER_FILTER` (binary inputs), `ROLLOVER`, `DISCONTINUITY` (counters), `OVER_RANGE`, `REFERENCE_ERR` (analog points). Omitted for variations without flags (packed and "without flag" variations) and when no flag is set |
+| `flags` | the quality flags that are set, joined with `\|`: `ONLINE`, `RESTART`, `COMM_LOST`, `REMOTE_FORCED`, `LOCAL_FORCED`, and by type `CHATTER_FILTER` (binary and double-bit inputs), `ROLLOVER`, `DISCONTINUITY` (counters), `OVER_RANGE`, `REFERENCE_ERR` (analog points); a set bit without a name for the type is `BIT5`, `BIT6` or `BIT7`. Omitted for variations without flags (packed and "without flag" variations) and when no flag is set |
 | `status` | the command status of a command event (g13, g43), for example `"SUCCESS"` |
 | `interval`, `interval_unit` | a time and interval (g50v4) only: the interval (number) and its unit: `"none"`, `"milliseconds"`, `"seconds"`, `"minutes"`, `"hours"`, `"days"`, `"weeks"`, `"months"`, `"months-day"`, `"months-last"`, `"months-same"` (`"unit-<n>"` for a code the standard does not define) |
 | `statistic` | a security statistic (g121, g122) only: its name by index, `"unexpected messages"`, `"authorization failures"`, `"authentication failures"`, `"reply timeouts"`, `"rekeys due to authentication failure"`, `"total messages sent"`, `"total messages received"`, `"critical messages sent"`, `"critical messages received"`, `"discarded messages"`, `"error messages sent"`, `"error messages received"`, `"successful authentications"`, `"session key changes"`, `"failed session key changes"`, `"update key changes"`, `"failed update key changes"`, `"rekeys due to restarts"` |

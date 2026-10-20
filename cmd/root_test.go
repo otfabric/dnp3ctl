@@ -393,6 +393,11 @@ func TestServer(t *testing.T) {
 					if e["event"] == "listening" && !strings.Contains(e["detail"].(string), "Test outstation, link address 10; Second, link address 11") {
 						t.Errorf("listening: %v", e)
 					}
+					// Over UDP the event log names the master, as with one outstation, not the
+					// server's own socket.
+					if remote, _ := e["remote"].(string); transport == "udp" && e["event"] != "listening" && remote == "127.0.0.1:"+port {
+						t.Errorf("%s names the server's socket as the remote: %v", e["event"], e)
+					}
 				}
 			})
 		}

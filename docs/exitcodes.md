@@ -1,6 +1,6 @@
 # Process exit codes
 
-`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active.
+`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active. A usage error (exit code 2) is always the `error:` line on stderr, also with `--format json`: the invocation is rejected before the command reads `--format`.
 
 | Code | Meaning |
 |------|---------|
@@ -17,7 +17,8 @@
 
 | `kind` | `code` values |
 |--------|---------------|
-| `usage`, `invalid_input` | `invalid_input`, `invalid_format`, `invalid_url`, `invalid_flag_combination`, `invalid_config`, `invalid_key`, `input_file_open_failed`, `output_file_create_failed` |
+| `usage` | always `invalid_input` |
+| `invalid_input` | `invalid_input`, `invalid_format`, `invalid_url`, `invalid_flag_combination`, `invalid_config`, `invalid_key`, `input_file_open_failed`, `output_file_create_failed` |
 | `transport` | `transport_connect_failed`, `transport_tls_failed`, `connection_lost`, `listen_failed` |
 | `timeout` | `request_timeout` |
 | `refused` | `no_func_code_support` (IIN2.0), `object_unknown` (IIN2.1), `parameter_error` (IIN2.2), `already_executing` (IIN2.4), `command_refused` (a control echoed with another status than `SUCCESS`; the message names it), `file_refused`, `authentication_failed` |

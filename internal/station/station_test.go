@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -336,6 +337,42 @@ func TestSimulation(t *testing.T) {
 	}
 	_ = st.Close()
 	_ = st.Close() // a second Close is harmless
+}
+
+// Counters follow every numeric mode, as whole numbers they can hold.
+func TestCounterSimulation(t *testing.T) {
+	st, _ := newStation(t, `
+outstation: {}
+points:
+  - {type: counter, index: 0, value: 0, simulate: {mode: ramp, interval: 50ms, min: 10, max: 12}}
+  - {type: counter, index: 1, value: 0, simulate: {mode: random, interval: 50ms, min: 100, max: 200}}
+  - {type: frozen-counter, index: 0, value: 0, simulate: {mode: sine, interval: 50ms, min: 1000, max: 2000, step: 4}}
+`)
+	db := st.Server().Database()
+	eventually(t, "the counters to follow their modes", func() bool {
+		c0, _ := db.Get(server.Counter, 0)
+		c1, _ := db.Get(server.Counter, 1)
+		f0, _ := db.Get(server.FrozenCounter, 0)
+		v0, v1, f := c0.(app.Counter).Value, c1.(app.Counter).Value, f0.(app.Counter).Value
+		return v0 >= 10 && v0 <= 12 && v1 >= 100 && v1 <= 200 && f >= 1000 && f <= 2000
+	})
+
+	for _, c := range []struct {
+		spec SimSpec
+		cur  uint32
+		step float64
+		want uint32
+	}{
+		{SimSpec{Mode: "count"}, math.MaxUint32, 1, 0},                            // count wraps
+		{SimSpec{Mode: "Ramp", Min: 5, Max: 7}, 7, 1, 5},                          // back to min above max
+		{SimSpec{Mode: "ramp", Min: 0, Max: 10}, 1, 0.5, 2},                       // rounded
+		{SimSpec{Mode: "ramp", Min: -5, Max: 10}, 10, 1, 0},                       // below 0 is 0
+		{SimSpec{Mode: "sine", Min: 0, Max: 1e10, Step: 4}, 0, 4, math.MaxUint32}, // capped
+	} {
+		if got := counterValue(&c.spec, c.cur, 1, c.step); got != c.want {
+			t.Errorf("counterValue(%+v, %d, step %g) = %d, want %d", c.spec, c.cur, c.step, got, c.want)
+		}
+	}
 }
 
 func TestFileServer(t *testing.T) {

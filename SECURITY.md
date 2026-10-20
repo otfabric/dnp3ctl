@@ -19,8 +19,8 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 
 | Version | Supported |
 |---------|-----------|
-| Latest release | Yes |
-| Older releases | Best effort |
+| 0.6.x | Yes |
+| < 0.6 | Best effort |
 
 ## Security Considerations
 
@@ -51,8 +51,8 @@ Keys are handled as follows:
 - They are read from files (`--sa-update-key-file`, `--sa-key-file`) or environment variables (`DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`), as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the files to the environment on shared hosts. Give one kind of key, not both
 - The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
 - **Aggressive mode** (`--sa-aggressive`, `DNP3CTL_SA_AGGRESSIVE`; clause 7.5.2.2.4): once the outstation has challenged one request, the master sends further critical requests with their MAC over that last challenge, without waiting for a new one. It saves a round trip per control and needs a key like any secure authentication; the outstation checks the MAC and the challenge sequence number. Within one command it applies from the second critical request on: in `client operate --mode sbo` the OPERATE after the challenged SELECT
-- **Security statistics** (clause 7.6): an outstation with secure authentication counts, per master, its authentication failures, session key changes, critical messages and the other statistics of the standard. `client read --object g121v1` shows them by name; the simulated outstation keeps them and reports g122 events in class 1 every 10 increments. A rising `authentication failures` or `unexpected messages` count is worth a look
-- Interoperability: go-dnp3's interop suite verifies the challenge, the session key change and the security statistics against DSC go-dnp3 in both directions; opendnp3 3.x and Step Function I/O's dnp3 have no SAv5. Aggressive mode is verified between go-dnp3's own master and outstation only, and dnp3ctl against its simulated outstation, as no reference stack implements it
+- **Security statistics** (clause 7.6): an outstation with secure authentication counts, per master, its authentication failures, session key changes, critical messages and the other statistics of the standard. `client read --object g121v1` shows them by name; the simulated outstation keeps them and reports g122 events in class 1 every 10 increments (by default; `--sa-statistics-class`, `--sa-statistics-threshold`). A rising `authentication failures` or `unexpected messages` count is worth a look
+- Interoperability: go-dnp3's interop suite verifies the challenge, the session key change and the security statistics against DSC Systems' go-dnp3 ([github.com/dscsystems/go-dnp3](https://github.com/dscsystems/go-dnp3)) in both directions; opendnp3 3.x and Step Function I/O's dnp3 have no SAv5. Aggressive mode is verified between go-dnp3's own master and outstation only, and dnp3ctl against its simulated outstation, as no reference stack implements it
 - The update key change and user management are not implemented. SAv5 authenticates requests; it does not encrypt them: combine it with TLS where confidentiality matters
 - The simulated outstation verifies with the same key (`server start --sa-update-key-file` or `--sa-key-file`); it drops the session keys when a connection ends, and challenges the default critical function codes of go-dnp3 (controls, writes, restarts, freezes, assign class, opening and deleting files, among others)
 

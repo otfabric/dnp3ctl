@@ -18,6 +18,7 @@ outstation:
 
 points:                       # the point database
   - {type: binary-input, index: 0, name: Breaker closed, value: true, class: 1}
+  - {type: binary-output, index: 0, value: false, name: Breaker command}
   - type: analog-input
     index: 0
     value: 11.02
@@ -38,6 +39,8 @@ uploads:
   dir: ./uploads
 ```
 
+The file `./events.csv` must exist next to the model: a `path` that does not open is an error of the model, like any other.
+
 ## `outstation`
 
 | Field | Meaning |
@@ -52,7 +55,7 @@ uploads:
 | `confirm_timeout` | How long the outstation waits for an application confirmation. Default `5s` |
 | `restart_delay` | The time a master is told to wait after a cold or warm restart. Without it restarts are refused (IIN2.0). A cold restart also puts every point back to its value in the model |
 | `event_limit` | Events buffered per point type and master. Default 100; when a buffer is full the oldest event is dropped and IIN2.3 (EVENT_BUFFER_OVERFLOW) is set |
-| `attributes` | Device attributes of set 0 (group 0) as strings, by name or variation number: `manufacturer`, `product`, `software-version`, `hardware-version`, `serial-number`, `device-name`, `location`, `owner`, `user-id`, … (the names `dnp3ctl client attributes` shows). Of these, the user-assigned ones a master may write: `owner`, `location`, `user-id` and `device-name` |
+| `attributes` | Device attributes of set 0 (group 0) as strings, by name or variation number: `manufacturer`, `product`, `software-version`, `hardware-version`, `serial-number`, `device-name`, `location`, `owner`, `user-id`, … (the names `dnp3ctl client attributes` shows). Of these, a master may write the user-assigned ones, `owner`, `location`, `user-id` and `device-name`, when the model gives them; other writes are refused with PARAMETER_ERROR |
 | `attribute_sets` | Further sets of device attributes; see below |
 | `indications` | Internal indications the outstation reports from the start: `local-control`, `device-trouble`, `config-corrupt` |
 | `refused_functions` | Management functions the outstation refuses with NO_FUNC_CODE_SUPPORT: `initialize-data`, `initialize-application`, `start-application`, `stop-application`, `save-configuration`. It accepts the others, and logs each as a `manage` event |
@@ -110,7 +113,7 @@ outstation:
 | `type` | Objects | Value | Default variations (static, event) |
 |--------|---------|-------|------------------------------------|
 | `binary-input` | g1, g2 | `true` / `false` (or `on` / `off`) | g1v2, g2v2 |
-| `double-bit-input` | g3, g4 | `off`, `on`, `intermediate`, `indeterminate` (quote `"on"` and `"off"` in YAML) | g3v2, g4v2 |
+| `double-bit-input` | g3, g4 | `off`, `on`, `intermediate`, `indeterminate` (`true` / `false` also work) | g3v2, g4v2 |
 | `binary-output` | g10, g11 | `true` / `false` | g10v2, g11v2 |
 | `counter` | g20, g22 | whole number 0 … 4 294 967 295 | g20v1, g22v5 |
 | `frozen-counter` | g21, g23 | whole number; a freeze copies the counter of the same index into it | g21v1, g23v5 |
@@ -140,6 +143,8 @@ A value is encoded in the variation a master asks for: an integer variation roun
 | `sine` | counters and analog points | a sine between `min` and `max` |
 | `random` | counters and analog points | a uniformly distributed value between `min` and `max` |
 | `count` | counters and analog points | adds `step`; a counter that passes 4 294 967 295 starts again at 0 |
+
+A counter or frozen counter holds whole numbers: with `ramp`, `sine` and `random` its value is rounded, and kept within 0 … 4 294 967 295. `count` adds the whole part of `step`.
 
 A change produces an event of the point's class (when it has one and the change exceeds the deadband), stamped with the outstation's clock. Events are buffered per master until that master has read and confirmed them, also while it is not connected, and are reported in event polls and, when enabled, unsolicited.
 
@@ -189,7 +194,7 @@ A written file appears in its directory and can be read back.
 | Request | Answer |
 |---------|--------|
 | READ of classes 0-3 (integrity, event and class polls) | the static data of class 0; the buffered events of classes 1-3, confirmed by the master and then removed |
-| READ of objects and ranges | the points, in the variation asked for or the static variation; PARAMETER_ERROR for indexes that do not exist, OBJECT_UNKNOWN for objects it does not have |
+| READ of objects and ranges | the points, in the variation asked for or the static variation; PARAMETER_ERROR for indexes that do not exist, OBJECT_UNKNOWN for objects and variations the outstation does not support; a point type the model has no points of is answered with no objects |
 | SELECT, OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR | as described under `controls` |
 | WRITE g50v1, RECORD_CURRENT_TIME + WRITE g50v3, DELAY_MEASURE | sets the outstation's clock (logged as `time-sync`), clears NEED_TIME |
 | WRITE g80v1 index 7 | clears DEVICE_RESTART |
@@ -206,6 +211,6 @@ A written file appears in its directory and can be read back.
 | File transfer (g70) | serves `files`, lists directories, takes uploads |
 | Anything else | IIN2.0 (NO_FUNC_CODE_SUPPORT) |
 
-The outstation serves any number of masters (16 connections by default, `--max-sessions`), each with its own association and event buffer. Over UDP (`--udp`) there are no connections: the outstation answers the endpoint the last datagram came from, which the event log shows as `remote`, so one master is served at a time, and unsolicited responses start once a master has sent a request, unless `--udp-peer` names the master. With `--sa-update-key-file` (session key change) or `--sa-key-file` (a pre-shared session key), or their environment variables, critical requests (controls, writes, restarts, freezes, assign class, opening and deleting files, among others) are challenged by Secure Authentication v5 and executed only when the master answers with the right MAC, or when they carry it themselves in aggressive mode. The outstation then keeps the security statistics of each master (g121v1, read with `client read --object g121v1`) and reports a g122 event in class 1 every 10 increments of a statistic.
+The outstation serves several masters at once (up to 16 connections by default, `--max-sessions`), each with its own association and event buffer. Over UDP (`--udp`) there are no connections: the outstation answers the endpoint the last datagram came from, which the event log shows as `remote`, so one master is served at a time, and unsolicited responses start once a master has sent a request, unless `--udp-peer` names the master. With `--sa-update-key-file` (session key change) or `--sa-key-file` (a pre-shared session key), or their environment variables, critical requests (controls, writes, restarts, freezes, assign class, opening and deleting files, among others) are challenged by Secure Authentication v5 and executed only when the master answers with the right MAC, or when they carry it themselves in aggressive mode. The outstation then keeps the security statistics of each master (g121v1, read with `client read --object g121v1`) and reports a g122 event in class 1 every 10 increments of a statistic (`--sa-statistics-class`, `--sa-statistics-threshold`); a challenge waits `--sa-reply-timeout` for the master's reply (default 10 s).
 
 With `--dial tcp://host[:port]` or `--dial tls://host[:port]` the outstation does not listen: it connects to its master (the dual end point of IEEE 1815-2012 annex A.3), serves that connection like an accepted one, and connects again whenever it ends, after 1 second and doubling up to 1 minute between failed attempts. Over TLS it is the TLS client: `--tls-ca` verifies the master (the system roots by default), and `--tls-cert` and `--tls-key`, when given, are presented to it. A master that waits for it is `dnp3ctl client … --listen`.

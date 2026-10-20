@@ -91,7 +91,7 @@ When you change commands, flags, output or exit codes, update:
 - [README.md](README.md), including the environment variable table for new flags
 - [docs/json-output.md](docs/json-output.md) and [docs/exitcodes.md](docs/exitcodes.md) — `--format json` and exit codes are a stable contract for scripts
 - [docs/server-config.md](docs/server-config.md) and the commented demo model in `internal/station/demo.go` when the outstation model changes
-- [RELEASE.md](RELEASE.md), calling out anything that breaks existing usage
+- [RELEASE.md](RELEASE.md), calling out anything that breaks existing usage: a `## vX.Y.Z` section at the top, with `**Date:**` and `**Previous release:**` lines, ending with a `---` line. The release workflow publishes the text from `## <tag>` to the next `---` as the release notes, so there is never an Unreleased section
 
 ## Submitting Changes
 
@@ -117,7 +117,7 @@ For larger changes, please open an issue first to discuss the approach.
 
 ```
 cmd/                   Root command, version, completion
-cmd/client/            Client commands (poll, read, monitor, operate, time-sync, restart, unsolicited, assign-class, freeze, attributes, ping, file, objects)
+cmd/client/            Client commands (poll, read, monitor, operate, time-sync, restart, unsolicited, assign-class, freeze, attributes, write-attribute, write-deadband, manage, clear-restart, ping, file, objects)
 cmd/server/            Simulated outstation (start, generate-config)
 cmd/discover/          Subnet discovery
 internal/config/       Configuration types, flag and environment binding, outstation URLs
