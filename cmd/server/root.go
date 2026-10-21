@@ -23,7 +23,7 @@ import (
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "server",
-		Args:  cobra.NoArgs,
+		Args:  cli.GroupArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 		Short: "Act as an outstation: simulate an RTU from a model of points, controls and files",
 		Long: `Commands that run a simulated outstation: a stand-in for an RTU, IED or gateway that

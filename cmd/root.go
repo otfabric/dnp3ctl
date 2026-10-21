@@ -3,7 +3,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/otfabric/dnp3ctl/cmd/client"
 	"github.com/otfabric/dnp3ctl/cmd/discover"
 	"github.com/otfabric/dnp3ctl/cmd/server"
+	clihelp "github.com/otfabric/dnp3ctl/internal/cli"
 	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/runner"
 	"github.com/spf13/cobra"
@@ -204,11 +204,7 @@ func unknownSubcommand(cmd *cobra.Command, args []string, err error) error {
 				return err
 			}
 		}
-		msg := fmt.Sprintf("unknown command %q for %q", a, cmd.CommandPath())
-		if s := cmd.SuggestionsFor(a); len(s) > 0 {
-			msg += "\n\nDid you mean this?\n\t" + strings.Join(s, "\n\t")
-		}
-		return errors.New(msg)
+		return clihelp.UnknownCommand(cmd, a)
 	}
 	return err
 }

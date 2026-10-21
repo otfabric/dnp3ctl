@@ -17,7 +17,7 @@ import (
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "client",
-		Args:  cobra.NoArgs,
+		Args:  cli.GroupArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 		Short: "Act as a master: poll, read, monitor, operate, synchronize time and transfer files",
 		Long: `Commands that connect to an outstation (RTU, IED, gateway) as a DNP3 master does:
