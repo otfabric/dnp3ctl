@@ -2,7 +2,7 @@
 
 ## v0.6.3
 
-**Date:** 2026-10-20  
+**Date:** 2026-10-21  
 **Previous release:** v0.6.2
 
 ### Summary
@@ -13,6 +13,7 @@ Four behaviours of the command line and of the simulated outstation follow what 
 
 - **Usage errors and `--format json`:** an unknown command or flag, a missing required flag or a value a flag cannot hold is now the JSON error object `{"error": {"kind": "usage", "code": "invalid_input", "message": ...}}` on stdout when the invocation asks for JSON, by `--format json` (also `--format=json`, wherever it stands on the command line) or by `DNP3CTL_OUTPUT_FORMAT=json` for a command that has `--format`. It was always the text `error:` line on stderr. The exit code stays 2, and text stays as it was. `server generate-config --format` is the format of the model file it writes, not of a result, so its errors stay text.
 - **Connection styles, environment and command line:** a flag of one connection style on the command line now wins over the environment variables of the others, as for every other flag: `client … --ip` works with `DNP3CTL_URL` set (likewise `--url`, `--listen` with `DNP3CTL_IP`, `DNP3CTL_MASTER_LISTEN`), and `server start --dial` with `DNP3CTL_PORT` or `DNP3CTL_UDP` set (likewise `--serial`, and `--listen`, `--port`, `--udp`, `--udp-peer`, `--allow` with `DNP3CTL_DIAL` or `DNP3CTL_SERIAL`). Two styles both on the command line, or both in the environment, are still refused as mutually exclusive.
+- **go-dnp3 v1.3.2**, which runs its interop suite against otfabric/dnp3-interop v0.4.3 (the FAQ says so); no change of the library.
 - Docs: README.md, docs/json-output.md, docs/exitcodes.md and docs/server-config.md describe the new behaviour, and say why `server generate-config --format` takes `yaml` or `json`.
 
 ### Fixed

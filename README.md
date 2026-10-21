@@ -981,7 +981,7 @@ The outstation answered with values and set an error bit in its internal indicat
 
 ### Which outstations and stacks has it been tested with?
 
-The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3, DSC go-dnp3 and dnp3py, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.4.1, contract 1.3: among others device attribute sets, broadcast, freeze at time, deadbands and file append). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
+The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against Step Function I/O's dnp3, opendnp3, DSC go-dnp3 and dnp3py, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.4.3, contract 1.3: among others device attribute sets, broadcast, freeze at time, deadbands and file append). dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 
