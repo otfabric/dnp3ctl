@@ -1,5 +1,42 @@
 # dnp3ctl Releases
 
+## v0.6.6
+
+**Date:** 2026-10-21  
+**Previous release:** v0.6.5
+
+### Summary
+
+Built on go-dnp3 v1.4.1. The simulated outstation (`server start`) no longer crashes on a malformed request, and it answers as the DNP Users Group's IED certification procedures require; go-dnp3 now runs those in CI.
+
+### Security
+
+- **`server start` no longer crashes on a malformed READ:** go-dnp3 v1.3.2 and earlier took the whole outstation process down on a READ of g70v5 (file transport) whose header carries indices but no objects. Any master that can reach a `server start` could send it. Fixed in go-dnp3 v1.4.0: such a request is answered with IIN2.2.
+
+### Changed
+
+The simulated outstation follows go-dnp3 v1.4.x:
+
+- An OPERATE after the select timeout is answered TIMEOUT, not NO_SELECT. A control it does not support (`NOT_SUPPORTED`) also sets IIN2.2. A control whose request carries a status is refused with FORMAT_ERROR.
+- A read of a point type the model has no points of is answered with IIN2.1.
+- Relative-time events carry an unsynchronized CTO (g51v2) until the time is synchronized.
+- A variation without flags reports a point with abnormal flags in the variation with flags.
+- The response that reports a broadcast to `confirm` or `optional` asks for confirmation.
+- A READ sent while an unsolicited response waits for its confirmation is answered after it.
+
+`client` against an outstation that answers `NOT_SUPPORTED` with IIN2.2 (go-dnp3 v1.4, opendnp3, Step Function I/O's dnp3) reports the echoed statuses, as for any refused control: exit code 6, or 7 when other controls of a direct operate were executed. With go-dnp3 v1.4.0 it would have reported only the IIN error.
+
+### Docs
+
+- FAQ: go-dnp3 is tested against dnp3-interop v0.5.1 and with the IED certification procedures (dnp3c).
+- SECURITY: use 0.6.6 or later.
+
+### Upgrade notes
+
+- No breaking changes in the command line or the JSON output.
+
+---
+
 ## v0.6.5
 
 **Date:** 2026-10-21  

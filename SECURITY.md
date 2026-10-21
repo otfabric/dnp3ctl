@@ -19,7 +19,8 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 
 | Version | Supported |
 |---------|-----------|
-| 0.6.x | Yes |
+| 0.6.6 and later | Yes |
+| 0.6.0 – 0.6.5 | Upgrade: their `server start` is built on go-dnp3 v1.3.2, which a malformed READ of g70v5 crashes |
 | < 0.6 | Best effort |
 
 ## Security Considerations
