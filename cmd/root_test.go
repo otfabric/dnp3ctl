@@ -72,6 +72,7 @@ func TestUsageErrorsHonourFormat(t *testing.T) {
 		{"misspelt subcommand", "", []string{"client", "pol", "--format", "json"}, true, "Did you mean this?\n\tpoll"},
 		{"alias of a subcommand, unknown flag", "", []string{"client", "integrity", "--nope", "--format", "json"}, true, "unknown flag: --nope"},
 		{"unknown subcommand without flags", "", []string{"client", "nope"}, false, `unknown command "nope" for "dnp3ctl client"`},
+		{"misspelt subcommand without flags, text", "", []string{"client", "pol"}, false, `unknown command "pol" for "dnp3ctl client"`},
 		{"unknown subcommand, grouped short flags", "", []string{"client", "-xyz", "nope", "--format", "json"}, true, "unknown"},
 		{"too many arguments", "", []string{"version", "extra", "--format", "json"}, true, ""},
 		{"--format after --", "", []string{"client", "poll", "--nope", "--", "--format", "json"}, false, "unknown flag"},
@@ -594,4 +595,19 @@ func TestServer(t *testing.T) {
 		_ = os.WriteFile(keyFile, []byte(strings.Repeat("a5", 16)), 0o600)
 		run(t, "server", "start", "--sa-update-key-file", keyFile, "--sa-statistics-class", "4").want(t, 3).errHas(t, "use 1-3")
 	})
+}
+
+// A misspelt subcommand of a group gets Cobra's suggestion without flags too, the same
+// message as with them.
+func TestUnknownSubcommandSuggestions(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"client", "pol"}, "Did you mean this?\n\tpoll"},
+		{[]string{"server", "stat"}, "Did you mean this?\n\tstart"},
+		{[]string{"client", "pol", "--format", "text"}, "Did you mean this?\n\tpoll"},
+	} {
+		run(t, c.args...).want(t, 2).errHas(t, c.want)
+	}
 }

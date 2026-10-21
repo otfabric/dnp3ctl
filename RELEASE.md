@@ -1,5 +1,24 @@
 # dnp3ctl Releases
 
+## v0.6.5
+
+**Date:** 2026-10-21  
+**Previous release:** v0.6.4
+
+### Summary
+
+A misspelt subcommand of `client` or `server` gets the "Did you mean this?" suggestion with flags and without, for a typo as well as an abbreviation.
+
+### Fixed
+
+- **Suggestions for subcommands:** `dnp3ctl client pol` said only `unknown command "pol" for "dnp3ctl client"`; it now adds "Did you mean this? poll", the same message as with flags. Both paths also suggest by edit distance, not only by prefix: `dnp3ctl server stat` suggests `start` (Cobra sets that distance only for the root's own commands). One function builds the message for both paths.
+
+### Upgrade notes
+
+- No breaking changes.
+
+---
+
 ## v0.6.4
 
 **Date:** 2026-10-21  
