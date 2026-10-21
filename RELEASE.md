@@ -1,5 +1,24 @@
 # dnp3ctl Releases
 
+## v0.6.4
+
+**Date:** 2026-10-21  
+**Previous release:** v0.6.3
+
+### Summary
+
+An unknown subcommand of `client` or `server` given together with a flag is reported as the unknown command it is, with suggestions, instead of as an unknown flag.
+
+### Fixed
+
+- **Unknown subcommand with a flag:** `dnp3ctl client nope --format json` (or any flag after an unknown subcommand) reported `unknown flag: --format`: Cobra stops at the `client` group, which has none of its subcommands' flags. It now reports `unknown command "nope" for "dnp3ctl client"`, with "Did you mean this?" suggestions for a misspelt one (`client pol` → `poll`), as text or as the JSON error object. Without flags the message was already right. Exit code 2 as before.
+
+### Upgrade notes
+
+- No breaking changes.
+
+---
+
 ## v0.6.3
 
 **Date:** 2026-10-21  

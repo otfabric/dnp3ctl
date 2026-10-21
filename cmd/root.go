@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/runner"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // buildMeta holds link-time metadata set from main via SetBuildMeta.
@@ -152,7 +154,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				inv.SetOutputFormat(f)
 			}
 		}
-		return runner.RenderFatal(inv, usageError(err), stdout, stderr, trace)
+		return runner.RenderFatal(inv, usageError(unknownSubcommand(cmd, args, err)), stdout, stderr, trace)
 	}
 	if inv.SuccessExitSet {
 		return inv.SuccessExitCode
@@ -170,6 +172,70 @@ func buildRoot() (root *cobra.Command, err error) {
 		}
 	}()
 	return NewRootCmd(), nil
+}
+
+// unknownSubcommand returns the error for an unknown subcommand of a group command
+// ("dnp3ctl client nope --format json") in place of the error about the first flag:
+// Cobra stops at the group, which has none of its subcommands' flags, and reports that
+// flag. Any other error is returned as it is.
+func unknownSubcommand(cmd *cobra.Command, args []string, err error) error {
+	if cmd == nil || !cmd.HasSubCommands() || !strings.HasPrefix(err.Error(), "unknown flag") {
+		return err
+	}
+	depth := len(strings.Fields(cmd.CommandPath())) - 1 // the words after "dnp3ctl"
+	words := 0
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "-") {
+			if takesValue(cmd, a) {
+				i++ // its value is the next argument
+			}
+			continue
+		}
+		words++
+		if words <= depth {
+			continue
+		}
+		for _, sub := range cmd.Commands() {
+			if sub.Name() == a || sub.HasAlias(a) {
+				return err
+			}
+		}
+		msg := fmt.Sprintf("unknown command %q for %q", a, cmd.CommandPath())
+		if s := cmd.SuggestionsFor(a); len(s) > 0 {
+			msg += "\n\nDid you mean this?\n\t" + strings.Join(s, "\n\t")
+		}
+		return errors.New(msg)
+	}
+	return err
+}
+
+// takesValue reports whether the flag arg ("--format", "-o", not "--format=json") names a
+// flag of cmd or of one of its subcommands that takes a value, so that the next argument
+// is that value rather than a command.
+func takesValue(cmd *cobra.Command, arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	name := strings.TrimLeft(arg, "-")
+	if !strings.HasPrefix(arg, "--") && len(name) != 1 {
+		return false // a group of short flags, or a negative number
+	}
+	lookup := func(c *cobra.Command) *pflag.Flag {
+		if strings.HasPrefix(arg, "--") {
+			return c.Flags().Lookup(name)
+		}
+		return c.Flags().ShorthandLookup(name)
+	}
+	for _, c := range append([]*cobra.Command{cmd}, cmd.Commands()...) {
+		if f := lookup(c); f != nil {
+			return f.NoOptDefVal == ""
+		}
+	}
+	return false
 }
 
 // usageError classifies what Cobra itself rejects (an unknown command or flag, a missing
