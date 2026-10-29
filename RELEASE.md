@@ -1,5 +1,28 @@
 # dnp3ctl Releases
 
+## v0.6.7
+
+**Date:** 2026-10-29
+**Previous release:** v0.6.6
+
+### Summary
+
+Dependency update for serial (`serial://`) connections: go-serial v0.1.8 fixes two POSIX serial I/O bugs. No command or flag changes.
+
+### Dependencies
+
+- go-serial v0.1.6 → v0.1.8.
+
+### Fixes (from go-serial v0.1.8)
+
+- `Write` no longer loses data when the serial port's output buffer is
+  full. It used to return a short count with a nil error (or `n == -1`
+  with `EAGAIN`); it now blocks until every byte is written.
+- `Read` works when the port's file descriptor is 1024 or higher. It used
+  to return a spurious `io.EOF` at once.
+
+---
+
 ## v0.6.6
 
 **Date:** 2026-10-21  
