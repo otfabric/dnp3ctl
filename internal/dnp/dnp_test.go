@@ -253,7 +253,7 @@ func TestWrapError(t *testing.T) {
 		{&dnp3.FileError{Op: "open", Status: app.FileNotFound, Text: "gone"}, "refused", errs.CodeFileRefused},
 		{&dnp3.AuthError{Code: app.AuthErrAuthenticationFailed, User: 1}, "refused", errs.CodeAuthenticationFailed},
 		{fmt.Errorf("x: %w", dnp3.ErrAuthentication), "refused", errs.CodeAuthenticationFailed},
-		{context.Canceled, "internal", errs.CodeContextCanceled},
+		{context.Canceled, "interrupted", errs.CodeContextCanceled},
 		{&tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}, "transport", errs.CodeTransportTLSFailed},
 		{fmt.Errorf("x: %w", dnp3.ErrConnectFailed), "transport", errs.CodeTransportConnectFailed},
 		{fmt.Errorf("x: %w", dnp3.ErrTimeout), "timeout", errs.CodeRequestTimeout},

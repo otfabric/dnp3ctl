@@ -1,6 +1,6 @@
 # Process exit codes
 
-`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` as well: dnp3ctl reads `--format` from the command line, or `DNP3CTL_OUTPUT_FORMAT` for a command that has `--format`, even when the rest of the invocation cannot be parsed, and writes `{"error": {"kind": "usage", "code": "invalid_input", "message": ...}}` on stdout. `server generate-config --format` is the format of the model it writes, not of a result: its errors are always the `error:` line.
+`dnp3ctl` uses stable exit codes for scripting. A fatal error is rendered once: as one `error:` line on stderr, or as a single JSON `error` object on stdout when `--format json` is active. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` as well: dnp3ctl reads `--format` from the command line, or `DNP3CTL_FORMAT` for a command that has `--format`, even when the rest of the invocation cannot be parsed, and writes `{"error": {"kind": "usage", "code": "invalid_input", "message": ...}}` on stdout. `server generate-config --format` is the format of the model it writes, not of a result: its errors are always the `error:` line.
 
 | Code | Meaning |
 |------|---------|
@@ -11,7 +11,8 @@
 | 5 | Timeout (`KindTimeout`): the outstation did not answer a request, a link frame or a confirmation in time |
 | 6 | Refused or protocol error (`KindRefused`, `KindProtocol`): the outstation refused the request (IIN2 error bits, a control status other than `SUCCESS`, a refused file operation, a failed secure authentication), or violated the protocol |
 | 7 | Partial success (`ExitPartial`): a **valid** result was written to stdout, and it holds failures: a poll or read the outstation answered with values while it also reported an error in its IIN, a direct operate of several controls of which some were refused and the others executed, or a failed measurement of `client ping` |
-| 10 | Output / internal (`KindOutput`, `KindInternal`): the result could not be written, the command was interrupted before it had a result, or something unexpected happened |
+| 10 | Output / internal (`KindOutput`, `KindInternal`): the result could not be written, or something unexpected happened |
+| 130 | Interrupted (`KindInterrupted`): Ctrl-C or SIGTERM before a one-shot command had its result |
 
 **Kind vs code:** `kind` drives the exit code; `code` in the JSON error object is stable for machines. Do not parse the human `message`.
 
@@ -24,7 +25,8 @@
 | `refused` | `no_func_code_support` (IIN2.0), `object_unknown` (IIN2.1), `parameter_error` (IIN2.2), `already_executing` (IIN2.4), `command_refused` (a control echoed with another status than `SUCCESS`; the message names it), `file_refused`, `authentication_failed` |
 | `protocol` | `protocol_violation`, `request_busy` |
 | `output` | `json_encode_failed`, `table_render_failed`, `output_write_failed`, `output_file_write_failed`, `output_file_create_failed` |
-| `internal` | `context_canceled`, `internal_unexpected` |
+| `internal` | `internal_unexpected` |
+| `interrupted` | `context_canceled` |
 
 **Partial exit:** only after a success payload was written. A failure to connect, to validate or to write is fatal and uses the codes above, never `7`. A poll or read that the outstation refuses without returning any value is fatal (`6`), not partial.
 
@@ -35,3 +37,7 @@
 **`--debug`:** adds the frame trace and, after a fatal error, the chain of causes (`cause: …` lines) on stderr. It does not change stdout or the exit code.
 
 **Broadcasts:** `client operate --broadcast` and `client freeze --broadcast` exit `0` once the request is sent: nobody answers a broadcast, so neither a refusal nor a missing answer can be reported. Each outstation sets IIN1.0 BROADCAST in its next response; poll to see it. `--broadcast` with secure authentication configured exits `3`: it could not be authenticated.
+
+**Organisation table:** these codes follow the OT Fabric CLI exit-code table. dnp3ctl does not use `1`, `8` and `9`: they keep their organisation meaning and are not reused for anything else.
+
+**Format variable:** `DNP3CTL_FORMAT` is the name to use; `DNP3CTL_OUTPUT_FORMAT` stays accepted. When both are set, `DNP3CTL_FORMAT` wins.

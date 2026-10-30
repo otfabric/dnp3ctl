@@ -163,7 +163,7 @@ func TestRequestedFormat(t *testing.T) {
 	stdout.Flags().String("format", "text", "")
 	RegisterStdoutFormatCompletion(stdout)
 	fromEnv := &cobra.Command{Use: "read"}
-	fromEnv.Flags().String("format", "json", "") // the default DNP3CTL_OUTPUT_FORMAT gives it
+	fromEnv.Flags().String("format", "json", "") // the default DNP3CTL_FORMAT gives it
 	RegisterStdoutFormatCompletion(fromEnv)
 	model := &cobra.Command{Use: "generate-config"}
 	model.Flags().String("format", "yaml", "")

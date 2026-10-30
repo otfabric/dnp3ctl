@@ -31,7 +31,7 @@ func isStdoutFormat(f *pflag.Flag) bool {
 // RequestedFormat returns the format of stdout an invocation asks for when Cobra rejected
 // it before the command could record one (an unknown command or flag, a missing required
 // flag, a value a flag cannot hold): the last --format in args, or else the value of the
-// --format of cmd (the command Cobra failed on), which is DNP3CTL_OUTPUT_FORMAT when that
+// --format of cmd (the command Cobra failed on), which is DNP3CTL_FORMAT when that
 // is set. It reports false when nothing asks for a valid format, and when the --format of
 // cmd is not the format of stdout.
 func RequestedFormat(cmd *cobra.Command, args []string) (format.OutputFormat, bool) {
