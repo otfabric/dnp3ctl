@@ -1,5 +1,26 @@
 # dnp3ctl Releases
 
+## v0.6.8
+
+**Date:** 2026-10-30
+**Previous release:** v0.6.7
+
+### Summary
+
+Built on go-dnp3 v1.5.0, which hardens both ends against hostile or unlucky peers. No command or flag changes.
+
+### Changed (from go-dnp3 v1.5.0)
+
+- **`server start`** (the simulated outstation): a READ or ASSIGN CLASS that names every point many times over, or a range of 2^32 indexes, is answered with IIN2.2 instead of holding the outstation for seconds or minutes. A TLS connection must finish its handshake within 10 s. The listener keeps accepting after running out of file descriptors, a UDP outstation survives ICMP errors, and a panic loses one request, not the process. A WRITE of a NaN or negative deadband is answered with IIN2.2.
+- **`server start`**: frozen analog inputs read without flag (g31v5, g31v6) keep their flags when they are not ONLINE alone, and analog values that a variation without flag cannot carry are reported with OVER_RANGE. Binary and double-bit events recorded while the time was unsynchronized are reported with relative time under an unsynchronized CTO.
+- **`client`**: connecting synchronizes the time before the startup integrity poll when the outstation asks for it, and a startup step the outstation rejects (IIN2.0 to DISABLE UNSOLICITED from an outstation without unsolicited responses, for one) is logged instead of failing the connection. TCP connects and TLS handshakes time out after 10 s, and `udp://` connections survive an ICMP port unreachable.
+
+### Docs
+
+- FAQ: go-dnp3 is tested against dnp3-interop v0.6.0 (Step Function I/O dnp3 1.8.0, DSC go-dnp3 v0.8.2).
+
+---
+
 ## v0.6.7
 
 **Date:** 2026-10-29
