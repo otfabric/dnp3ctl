@@ -165,7 +165,7 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 | Link layer       | Master and outstation link addresses, confirmed or unconfirmed user data, link timeout and retries, keep-alive.            |
 | Secure Authentication | SAv5 with session key change (an update key, AES key wrap) or a pre-shared session key, read from a file or the environment (never the command line); HMAC-SHA-256 or HMAC-SHA-1; aggressive mode (**`--sa-aggressive`**); the security statistics (g121) by name. |
 | Robustness       | Timeouts per fragment and per request, retries of the requests that are safe to repeat (never controls), reconnects in `monitor`. |
-| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_OUTPUT_FORMAT`**); streams write JSON Lines. `server generate-config --format` picks `yaml` or `json`, since it writes a model file, not a result. |
+| `--format`       | Every command that prints a result accepts **`--format text\|json\|table`** (or **`DNP3CTL_FORMAT`**); streams write JSON Lines. `server generate-config --format` picks `yaml` or `json`, since it writes a model file, not a result. |
 | `--debug`        | Trace every link frame and application fragment sent and received, decoded, to stderr.                                   |
 | Completion       | Shell completion for bash, zsh, fish and PowerShell; flags with a fixed set of values (**`--format`**, **`--mode`**, **`--op`**, **`--object`**, …) complete to those values. |
 
@@ -408,11 +408,11 @@ Every command has `--help`, with a description and examples. Some have a shorter
 
 **Global flag:** `--debug` — trace every link frame and application fragment sent and received to stderr, decoded, and print the chain of causes after an error.
 
-**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_OUTPUT_FORMAT`**. It controls **only** the result on **stdout** (`server generate-config --format` picks `yaml` or `json` for the model instead: it writes a model file, not a result, and its errors are always text). Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
+**Output format (`--format`):** every command that prints a result accepts **`--format text`** (default), **`json`** or **`table`**, or set **`DNP3CTL_FORMAT`**. It controls **only** the result on **stdout** (`server generate-config --format` picks `yaml` or `json` for the model instead: it writes a model file, not a result, and its errors are always text). Progress, connection state, summaries and the debug trace go to **stderr**, so stdout can be piped or parsed as it is. The JSON shapes are a stable contract: see [docs/json-output.md](docs/json-output.md).
 
 **Streams:** `client monitor`, `client ping` and `server start` write one record as it happens: one line (**text**), one JSON object per line (**json**, JSON Lines) or one table row (**table**). They run until interrupted with Ctrl-C, which ends them normally; `client ping` stops after `--count` measurements (default 4; `--count 0` runs until interrupted), `client monitor` after `--count` values or `--duration` seconds when given, `server start` after `--duration`.
 
-**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure, `{"error": {"kind", "code", "message"}}`; with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` too, given on the command line or, for a command that has `--format`, in `DNP3CTL_OUTPUT_FORMAT`: the same JSON error object with `"kind": "usage"` and `"code": "invalid_input"`. Exit codes are stable:
+**Fatal errors:** with `--format json` a command writes a **single JSON error object** to stdout on failure, `{"error": {"kind", "code", "message"}}`; with **text** or **table** it writes a single **`error:`** line to stderr and leaves stdout empty. A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) follows `--format` too, given on the command line or, for a command that has `--format`, in `DNP3CTL_FORMAT`: the same JSON error object with `"kind": "usage"` and `"code": "invalid_input"`. Exit codes are stable:
 
 | Code | Meaning |
 |------|---------|
@@ -424,6 +424,7 @@ Every command has `--help`, with a description and examples. Some have a shorter
 | 6 | The outstation refused the request (IIN error, control status, file status, authentication), or a protocol error |
 | 7 | Partial success: a valid result that holds failures |
 | 10 | Output or internal error |
+| 130 | Interrupted before a result |
 
 See [docs/exitcodes.md](docs/exitcodes.md) for the details and the `code` values.
 
@@ -824,7 +825,7 @@ The full reference of the model is in [docs/server-config.md](docs/server-config
 
 ## Environment Variable Configuration
 
-Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_OUTPUT_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** must still be given on the command line: `--object` (`client read`, `assign-class`), `--type` and `--index` (`operate`), `--type` (`restart`), `--class` (`assign-class`), `--function` (`manage`), `--variation` and `--value` (`write-attribute`), `--index` and `--value` (`write-deadband`), `--path` (`client file info`, `get`, `put`, `rm`; not `ls`, which lists `/`), `--input` (`file put`) and `--subnets` (`discover`). The same rule holds across connection styles: when a flag of one style (`--url`, `--ip`, `--listen` of a client; `--dial`, `--serial`, or `--listen`, `--port`, `--udp`, `--udp-peer`, `--allow` of `server start`) is on the command line, the environment variables of the other styles are ignored, so `--ip` works with `DNP3CTL_URL` set. Two styles both on the command line, or both in the environment, are refused as mutually exclusive. The global flag `--debug` has no environment variable.
+Every flag can also be set through an environment variable, which is convenient for automation and for flags you would otherwise repeat on every command (`DNP3CTL_URL`, `DNP3CTL_OUTSTATION`, `DNP3CTL_FORMAT`). A flag on the command line wins over the environment. A value that cannot be parsed (a port that is not a number) stops dnp3ctl at startup. A flag that is **required** must still be given on the command line: `--object` (`client read`, `assign-class`), `--type` and `--index` (`operate`), `--type` (`restart`), `--class` (`assign-class`), `--function` (`manage`), `--variation` and `--value` (`write-attribute`), `--index` and `--value` (`write-deadband`), `--path` (`client file info`, `get`, `put`, `rm`; not `ls`, which lists `/`), `--input` (`file put`) and `--subnets` (`discover`). The same rule holds across connection styles: when a flag of one style (`--url`, `--ip`, `--listen` of a client; `--dial`, `--serial`, or `--listen`, `--port`, `--udp`, `--udp-peer`, `--allow` of `server start`) is on the command line, the environment variables of the other styles are ignored, so `--ip` works with `DNP3CTL_URL` set. Two styles both on the command line, or both in the environment, are refused as mutually exclusive. The global flag `--debug` has no environment variable.
 
 Three secrets are read **only** from the environment or a file, never from a flag: `DNP3CTL_SA_UPDATE_KEY` and `DNP3CTL_SA_KEY` (the Secure Authentication keys, as hex; or `--sa-update-key-file`, `--sa-key-file`) and `DNP3CTL_FILE_PASSWORD` (the password of `--file-user`; or `--file-password-file`).
 
@@ -895,7 +896,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_OPERATE_MODE** | string | **client operate**: Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response) | `--mode` | sbo |
 | **DNP3CTL_OP_COUNT** | uint8 | **client operate**: Number of times a crob is executed | `--count` | 1 |
 | **DNP3CTL_OUTPUT** | string | **client file get**: File to write the content to (- = stdout; default: the base name of --path); **server generate-config**: File to write the model to (- = stdout) | `--output` | - (generate-config); base name of --path (file get) |
-| **DNP3CTL_OUTPUT_FORMAT** | string | every client command, **client objects**, **discover**: Output format: text, json, or table; **server start**: Format of the event log on stdout: text, json, or table | `--format` | text |
+| **DNP3CTL_FORMAT** | string | (`DNP3CTL_OUTPUT_FORMAT` stays accepted) every client command, **client objects**, **discover**: Output format: text, json, or table; **server start**: Format of the event log on stdout: text, json, or table | `--format` | text |
 | **DNP3CTL_OUTSTATION** | uint16 | Link address of the outstation | `--outstation` | 10 |
 | **DNP3CTL_OUTSTATIONS** | strings | **discover**: Link addresses to send the probe to, comma-separated; 65532 is the self address, which outstations that support it answer whatever their own address | `--outstations` | [10,65532] |
 | **DNP3CTL_PARALLEL** | uint16 | **discover**: Number of concurrent probes (1-256) | `--parallel` | 32 |
@@ -997,7 +998,7 @@ It can. Events an outstation has reported to a master are gone from its buffer: 
 
 ### How do I use dnp3ctl in scripts and CI?
 
-Pass `--format json` (or set `DNP3CTL_OUTPUT_FORMAT=json`). Progress goes to stderr, the result goes to stdout, and a failure returns one JSON error object with a stable exit code. `dnp3ctl server start --config model.yaml --duration 60` gives a pipeline an outstation to test against. See [General CLI usage](#general-cli-usage), [docs/json-output.md](docs/json-output.md) and [docs/exitcodes.md](docs/exitcodes.md).
+Pass `--format json` (or set `DNP3CTL_FORMAT=json`). Progress goes to stderr, the result goes to stdout, and a failure returns one JSON error object with a stable exit code. `dnp3ctl server start --config model.yaml --duration 60` gives a pipeline an outstation to test against. See [General CLI usage](#general-cli-usage), [docs/json-output.md](docs/json-output.md) and [docs/exitcodes.md](docs/exitcodes.md).
 
 ---
 

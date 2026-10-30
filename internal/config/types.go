@@ -74,7 +74,7 @@ type PollConfig struct {
 	Classes      string `env:"DNP3CTL_CLASS" desc:"Classes for --mode event (1-3) or class (0-3), comma-separated (default 1,2,3)" flag:"class"`
 	Objects      string `env:"DNP3CTL_OBJECT" desc:"Only show these objects: groups or group/variations, comma-separated (e.g. g30,g1v2,32)" flag:"object"`
 	Indexes      string `env:"DNP3CTL_INDEX" desc:"Only show these point indexes: list and ranges (e.g. 0,5-9)" flag:"index"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // ReadConfig drives `client read`.
@@ -83,7 +83,7 @@ type ReadConfig struct {
 	Objects      string `env:"DNP3CTL_OBJECT" desc:"Objects to read, comma-separated: g30v5 (or 30.5), or g30 / g30v0 for any variation" flag:"object"`
 	Range        string `env:"DNP3CTL_RANGE" desc:"Point indexes to read: a range (0-9), a list (1,4,7) or empty for all points" flag:"range"`
 	Count        uint32 `env:"DNP3CTL_COUNT" desc:"Read at most this many objects (events); cannot be combined with --range" flag:"count"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // OperateConfig drives `client operate`.
@@ -99,7 +99,7 @@ type OperateConfig struct {
 	Variation    uint8  `env:"DNP3CTL_VARIATION" desc:"Variation of an analog control: 1 (32-bit), 2 (16-bit), 3 (single-precision float), 4 (double-precision float); 0 = 1 for whole numbers that fit, 3 otherwise" flag:"variation"`
 	Mode         string `env:"DNP3CTL_OPERATE_MODE" desc:"Procedure: sbo (select, then operate), direct (direct operate) or direct-no-ack (direct operate, no response)" flag:"mode"`
 	Broadcast    string `env:"DNP3CTL_BROADCAST" desc:"Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response" flag:"broadcast"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // MonitorConfig drives `client monitor`.
@@ -113,7 +113,7 @@ type MonitorConfig struct {
 	Duration     uint32 `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
 	Count        uint32 `env:"DNP3CTL_COUNT" desc:"Stop after this many values (0 = until interrupted)" flag:"count"`
 	NoReconnect  bool   `env:"DNP3CTL_NO_RECONNECT" desc:"Exit when the connection is lost instead of reconnecting" flag:"no-reconnect"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // PingConfig drives `client ping`.
@@ -121,7 +121,7 @@ type PingConfig struct {
 	ConnConfig
 	Count        uint32 `env:"DNP3CTL_COUNT" desc:"Number of delay measurements before exiting (0 = until interrupted)" flag:"count"`
 	Interval     uint32 `env:"DNP3CTL_INTERVAL" desc:"Interval between measurements in milliseconds" flag:"interval"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // TimeSyncConfig drives `client time-sync`.
@@ -129,21 +129,21 @@ type TimeSyncConfig struct {
 	ConnConfig
 	Method       string `env:"DNP3CTL_TIME_METHOD" desc:"Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay) or write (the time of --time, without correction)" flag:"method"`
 	Time         string `env:"DNP3CTL_TIME" desc:"Time to write with --method write: now, or an RFC 3339 time such as 2026-01-31T12:00:00Z" flag:"time"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // RestartConfig drives `client restart`.
 type RestartConfig struct {
 	ConnConfig
 	Type         string `env:"DNP3CTL_RESTART_TYPE" desc:"Restart: cold (full restart of the outstation) or warm (restart of the DNP3 application)" flag:"type"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // UnsolicitedConfig drives `client unsolicited enable` and `disable`.
 type UnsolicitedConfig struct {
 	ConnConfig
 	Classes      string `env:"DNP3CTL_CLASS" desc:"Event classes, comma-separated, 1-3 (default all three)" flag:"class"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // AssignClassConfig drives `client assign-class`.
@@ -152,7 +152,7 @@ type AssignClassConfig struct {
 	Class        uint8  `env:"DNP3CTL_ASSIGN_CLASS" desc:"Class to assign, 0-3 (0 = no events)" flag:"class"`
 	Objects      string `env:"DNP3CTL_OBJECT" desc:"Static objects whose points are assigned, comma-separated (e.g. g30, g1)" flag:"object"`
 	Range        string `env:"DNP3CTL_RANGE" desc:"Point indexes: a range (0-9), a list (1,4,7) or empty for all points" flag:"range"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FreezeConfig drives `client freeze`.
@@ -165,7 +165,7 @@ type FreezeConfig struct {
 	At           string `env:"DNP3CTL_FREEZE_AT" desc:"Freeze at this time instead of at once (FREEZE_AT_TIME): an RFC 3339 time such as 2026-01-31T12:00:00Z" flag:"at"`
 	Interval     string `env:"DNP3CTL_FREEZE_INTERVAL" desc:"With --at: repeat the freeze at this interval, such as 15m or 1h (default: once)" flag:"interval"`
 	Broadcast    string `env:"DNP3CTL_BROADCAST" desc:"Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response" flag:"broadcast"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // AttributesConfig drives `client attributes`.
@@ -173,7 +173,7 @@ type AttributesConfig struct {
 	ConnConfig
 	Set          uint16 `env:"DNP3CTL_ATTRIBUTE_SET" desc:"Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation" flag:"set"`
 	Variation    string `env:"DNP3CTL_ATTRIBUTE" desc:"Attribute to read: all, list (the list of attribute variations), a variation number 1-254 or, in set 0, a name such as manufacturer" flag:"variation"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // WriteAttributeConfig drives `client write-attribute`.
@@ -183,20 +183,20 @@ type WriteAttributeConfig struct {
 	Variation    string `env:"DNP3CTL_ATTRIBUTE" desc:"Attribute to write: a variation number 1-253 or, in set 0, a name such as location" flag:"variation"`
 	Value        string `env:"DNP3CTL_ATTRIBUTE_VALUE" desc:"Value to write" flag:"value"`
 	DataType     string `env:"DNP3CTL_ATTRIBUTE_TYPE" desc:"Data type of the value: vstr (visible string), uint, int or float" flag:"data-type"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // ManageConfig drives `client manage`.
 type ManageConfig struct {
 	ConnConfig
 	Function     string `env:"DNP3CTL_MANAGE_FUNCTION" desc:"Management function: initialize-data, initialize-application, start-application, stop-application or save-configuration" flag:"function"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // ClearRestartConfig drives `client clear-restart`.
 type ClearRestartConfig struct {
 	ConnConfig
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // WriteDeadbandConfig drives `client write-deadband`.
@@ -205,7 +205,7 @@ type WriteDeadbandConfig struct {
 	Indexes      string `env:"DNP3CTL_DEADBAND_INDEX" desc:"Analog inputs whose deadband is written: an index, or several comma-separated" flag:"index"`
 	Value        string `env:"DNP3CTL_DEADBAND" desc:"The deadband: a number of 0 or more" flag:"value"`
 	Variation    uint8  `env:"DNP3CTL_DEADBAND_VARIATION" desc:"Variation of g34: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); 0 = 2 for whole numbers that fit, 3 otherwise" flag:"variation"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FileAuthConfig holds the credentials of AUTHENTICATE_FILE. The password is never given on
@@ -222,14 +222,14 @@ type FileListConfig struct {
 	ConnConfig
 	FileAuthConfig
 	Path         string `env:"DNP3CTL_FILE_PATH" desc:"Directory to list" flag:"path"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FileInfoConfig drives `client file info`.
 type FileInfoConfig struct {
 	ConnConfig
 	Path         string `env:"DNP3CTL_FILE_PATH" desc:"File or directory on the outstation" flag:"path"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FileGetConfig drives `client file get`.
@@ -239,7 +239,7 @@ type FileGetConfig struct {
 	Path         string `env:"DNP3CTL_FILE_PATH" desc:"File on the outstation" flag:"path"`
 	Output       string `env:"DNP3CTL_OUTPUT" desc:"File to write the content to (- = stdout; default: the base name of --path)" flag:"output"`
 	Force        bool   `env:"DNP3CTL_FORCE" desc:"Overwrite an existing --output file" flag:"force"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FilePutConfig drives `client file put`.
@@ -250,7 +250,7 @@ type FilePutConfig struct {
 	Input        string `env:"DNP3CTL_INPUT" desc:"Local file whose content is sent" flag:"input"`
 	Permissions  string `env:"DNP3CTL_PERMISSIONS" desc:"Permissions of the new file: octal (644) or rwx form (rw-r--r--)" flag:"permissions"`
 	Append       bool   `env:"DNP3CTL_APPEND" desc:"Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode)" flag:"append"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // FileDeleteConfig drives `client file rm`.
@@ -258,14 +258,14 @@ type FileDeleteConfig struct {
 	ConnConfig
 	FileAuthConfig
 	Path         string `env:"DNP3CTL_FILE_PATH" desc:"File to delete on the outstation" flag:"path"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // ObjectsConfig drives `client objects`.
 type ObjectsConfig struct {
 	Group        uint8  `env:"DNP3CTL_GROUP" desc:"Only list the variations of this group (0 = all groups)" flag:"group"`
 	Events       bool   `env:"DNP3CTL_EVENTS" desc:"Only list event objects" flag:"events"`
-	OutputFormat string `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // DiscoverConfig drives `discover`.
@@ -277,7 +277,7 @@ type DiscoverConfig struct {
 	Timeout      uint32   `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds per probe (0 = 1000)" flag:"timeout"`
 	Parallel     uint16   `env:"DNP3CTL_PARALLEL" desc:"Number of concurrent probes (1-256)" flag:"parallel"`
 	ForceLarge   bool     `env:"DNP3CTL_DISCOVER_FORCE_LARGE" desc:"Allow a scan of more hosts than the built-in safety cap" flag:"force-large-scan"`
-	OutputFormat string   `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	OutputFormat string   `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 	Debug        bool     // set from global --debug (root persistent flag)
 }
 
@@ -303,7 +303,7 @@ type ServerConfig struct {
 	SAStatisticsEvery uint32   `env:"DNP3CTL_SA_STATISTICS_THRESHOLD" desc:"Secure authentication: increments of a security statistic between two of its events (0 = 10)" flag:"sa-statistics-threshold"`
 	MaxSessions       uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`
 	Duration          uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
-	OutputFormat      string   `env:"DNP3CTL_OUTPUT_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
+	OutputFormat      string   `env:"DNP3CTL_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
 	Debug             bool     // set from global --debug (root persistent flag)
 }
 

@@ -14,7 +14,7 @@ These conventions are a **stable contract** for scripting. Field names are snake
 | Durations | `duration_ms`, `rtt_ms`, `delay_ms`, `processing_ms` (numbers, milliseconds with fractions) |
 | Repeated rows | `measurements`, `attributes`, `entries`, `objects`, `devices`, `controls` (client operate): **arrays of objects**, empty arrays rather than null |
 | A failure inside a result | `error` object (`kind`, `code`, `message`); omitted when there is none |
-| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md). A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) is the same object with `"kind": "usage"` and `"code": "invalid_input"`, whether JSON is asked for by `--format json` or by `DNP3CTL_OUTPUT_FORMAT=json` |
+| Fatal error | one object `{"error": {"kind", "code", "message"}}` on stdout, nothing else; see [exitcodes.md](exitcodes.md). A usage error (exit code 2: an unknown command or flag, a missing required flag, a value a flag cannot hold) is the same object with `"kind": "usage"` and `"code": "invalid_input"`, whether JSON is asked for by `--format json` or by `DNP3CTL_FORMAT=json` |
 
 ## Measurement
 
