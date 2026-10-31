@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package config
 
 // TLSConfig holds the TLS settings of a client connection (IEEE 1815-2012 Annex B,

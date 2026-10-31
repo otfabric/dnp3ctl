@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package station
 
 // DemoYAML is the model `dnp3ctl server start` serves when it is given none, and what

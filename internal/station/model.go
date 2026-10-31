@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package station is the simulated outstation behind `dnp3ctl server start`: a model of
 // points, controls and files read from YAML or JSON, and the go-dnp3 outstation that serves
 // it. The tests of the client commands run against it as well.

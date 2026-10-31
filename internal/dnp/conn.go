@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package dnp holds what the commands of dnp3ctl do with go-dnp3: connecting to an
 // outstation, the requests of every client command, the conversion of what the outstation
 // answers into the results of package types, and the classification of errors.

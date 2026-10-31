@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package client holds the commands of a master: `dnp3ctl client …`.
 package client
 
