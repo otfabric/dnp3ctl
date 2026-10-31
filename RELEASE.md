@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.7.2
+
+**Date:** 2026-10-31
+**Previous release:** v0.7.1
+
+### Changed
+
+- Policy 1.2: build output in `bin/` and `release/`, a per-package coverage floor, and more tests and CI. No change in behaviour.
+- Built on go-dnp3 v1.5.1, go-serial v0.2.1.
+
+---
+
 ## v0.7.1
 
 **Date:** 2026-10-30
