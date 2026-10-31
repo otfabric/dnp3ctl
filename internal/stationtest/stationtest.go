@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package stationtest starts the simulated outstation of package station for tests, so
 // that nothing in the test suite needs a real device.
 package stationtest

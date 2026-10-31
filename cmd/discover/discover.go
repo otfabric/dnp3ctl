@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package discover holds `dnp3ctl discover`.
 package discover
 
