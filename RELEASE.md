@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.7.4
+
+**Date:** 2026-11-01
+**Previous release:** v0.7.3
+
+### Fixed
+
+- Through go-dnp3: one reconnect at a time with secure authentication, and a data race in the request queue. `dnp3ctl` code is unchanged.
+- Built on go-dnp3 v1.5.3, go-serial v0.2.1.
+
+---
+
 ## v0.7.3
 
 **Date:** 2026-11-01
