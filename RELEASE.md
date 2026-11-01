@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.7.3
+
+**Date:** 2026-11-01
+**Previous release:** v0.7.2
+
+### Changed
+
+- Dependency update, no other change.
+- Built on go-dnp3 v1.5.2, go-serial v0.2.1.
+
+---
+
 ## v0.7.2
 
 **Date:** 2026-10-31
