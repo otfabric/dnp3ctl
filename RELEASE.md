@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.7.5
+
+**Date:** 2026-11-02
+**Previous release:** v0.7.4
+
+### Changed
+
+- Removed interop test functionality against this stack, as requested by the maintainer of this stack: the Step Function I/O dnp3 stack. README, SECURITY and these notes no longer list it; go-dnp3's interop suite now runs against opendnp3, DSC go-dnp3 and dnp3py (dnp3-interop v0.9.0).
+- Built on go-dnp3 v1.5.4, which has no change in the library. `dnp3ctl` code is unchanged.
+
+---
+
 ## v0.7.4
 
 **Date:** 2026-11-01
@@ -87,7 +99,7 @@ Built on go-dnp3 v1.5.0, which hardens both ends against hostile or unlucky peer
 
 ### Docs
 
-- FAQ: go-dnp3 is tested against dnp3-interop v0.6.0 (Step Function I/O dnp3 1.8.0, DSC go-dnp3 v0.8.2).
+- FAQ: go-dnp3 is tested against dnp3-interop v0.6.0 (with DSC go-dnp3 v0.8.2).
 
 ---
 
@@ -138,7 +150,7 @@ The simulated outstation follows go-dnp3 v1.4.x:
 - The response that reports a broadcast to `confirm` or `optional` asks for confirmation.
 - A READ sent while an unsolicited response waits for its confirmation is answered after it.
 
-`client` against an outstation that answers `NOT_SUPPORTED` with IIN2.2 (go-dnp3 v1.4, opendnp3, Step Function I/O's dnp3) reports the echoed statuses, as for any refused control: exit code 6, or 7 when other controls of a direct operate were executed. With go-dnp3 v1.4.0 it would have reported only the IIN error.
+`client` against an outstation that answers `NOT_SUPPORTED` with IIN2.2 (go-dnp3 v1.4, opendnp3) reports the echoed statuses, as for any refused control: exit code 6, or 7 when other controls of a direct operate were executed. With go-dnp3 v1.4.0 it would have reported only the IIN error.
 
 ### Docs
 
