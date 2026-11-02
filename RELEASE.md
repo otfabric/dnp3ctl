@@ -1,5 +1,16 @@
 # dnp3ctl Releases
 
+## v0.7.6
+
+**Date:** 2026-11-02
+**Previous release:** v0.7.5
+
+### Changed
+
+- Built on go-dnp3 v1.6.0. The library adds ACTIVATE_CONFIG with its status answer (g91v1) at both ends, decodes g91v1 under a count qualifier as DSC go-dnp3 sends it, and adds two client options that withhold application confirmations for tests. `dnp3ctl` code is unchanged.
+
+---
+
 ## v0.7.5
 
 **Date:** 2026-11-02
