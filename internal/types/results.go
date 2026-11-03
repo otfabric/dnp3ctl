@@ -151,16 +151,17 @@ func (r *OperateResult) MarshalTextOutput() (string, error) {
 	if r.Type != "crob" && len(r.Controls) > 1 {
 		what = "set-points"
 	}
-	s := fmt.Sprintf("Operate (%s) %s index %s: %s on %s at %s: %s in %.1f ms", r.Mode, r.Object, r.indexes(), what, recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs)
+	var s strings.Builder
+	fmt.Fprintf(&s, "Operate (%s) %s index %s: %s on %s at %s: %s in %.1f ms", r.Mode, r.Object, r.indexes(), what, recipient(r.Outstation, r.Broadcast), r.Target, r.Status, r.RTTMs)
 	if len(r.Controls) > 1 {
 		for _, c := range r.Controls {
-			s += fmt.Sprintf("\n  index %-5d %-14s %s", c.Index, r.control(c.Value), c.Status)
+			fmt.Fprintf(&s, "\n  index %-5d %-14s %s", c.Index, r.control(c.Value), c.Status)
 		}
 	}
 	if r.Error != nil {
-		s += "\n  error: " + r.Error.Message
+		s.WriteString("\n  error: " + r.Error.Message)
 	}
-	return s, nil
+	return s.String(), nil
 }
 
 // recipient names who a request went to: the outstation, or every outstation of a

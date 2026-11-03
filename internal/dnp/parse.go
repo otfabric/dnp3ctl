@@ -4,7 +4,7 @@ package dnp
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +40,7 @@ func ParseObject(s string) (app.GroupVariation, error) {
 // ParseObjects parses a comma-separated list of objects.
 func ParseObjects(list string) ([]app.GroupVariation, error) {
 	var out []app.GroupVariation
-	for _, s := range strings.Split(list, ",") {
+	for s := range strings.SplitSeq(list, ",") {
 		if strings.TrimSpace(s) == "" {
 			continue
 		}
@@ -83,7 +83,7 @@ func ParseSelection(rng string, count uint32) (Selection, error) {
 		return Selection{All: true}, nil
 	case strings.Contains(rng, ","):
 		var list []uint32
-		for _, part := range strings.Split(rng, ",") {
+		for part := range strings.SplitSeq(rng, ",") {
 			n, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
 			if err != nil {
 				return Selection{}, fmt.Errorf("invalid index %q in --range %q: use a range (0-9) or a list of indexes (1,4,7)", part, rng)
@@ -157,7 +157,7 @@ func ParseClasses(list string, minClass int, def []int) ([]int, error) {
 	}
 	seen := map[int]bool{}
 	var out []int
-	for _, part := range strings.Split(list, ",") {
+	for part := range strings.SplitSeq(list, ",") {
 		n, err := strconv.Atoi(strings.TrimSpace(part))
 		if err != nil || n < minClass || n > 3 {
 			return nil, fmt.Errorf("invalid class %q: use %d-3", strings.TrimSpace(part), minClass)
@@ -178,7 +178,7 @@ type IndexFilter struct {
 // ParseIndexFilter parses --index. An empty string accepts every index.
 func ParseIndexFilter(s string) (IndexFilter, error) {
 	var f IndexFilter
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -284,6 +284,6 @@ func sortedKeys[V any](m map[uint8]V) []uint8 {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 	return keys
 }

@@ -255,9 +255,7 @@ func Discover(ctx context.Context, cfg *config.DiscoverConfig, progress io.Write
 	)
 	begin := time.Now()
 	for range int(cfg.Parallel) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range jobs {
 				p := probe(ctx, net.JoinHostPort(j.host, strconv.Itoa(int(j.port))), link.Address(cfg.Master), outstations, timeout)
 				if p.status == probeClosed {
@@ -274,7 +272,7 @@ func Discover(ctx context.Context, cfg *config.DiscoverConfig, progress io.Write
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 feed:
 	for _, h := range hosts {

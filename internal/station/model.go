@@ -57,7 +57,7 @@ type Model struct {
 	Points     []PointSpec    `yaml:"points" json:"points"`
 	Controls   []ControlSpec  `yaml:"controls,omitempty" json:"controls,omitempty"`
 	Files      []FileSpec     `yaml:"files,omitempty" json:"files,omitempty"`
-	Uploads    UploadSpec     `yaml:"uploads,omitempty" json:"uploads,omitempty"`
+	Uploads    UploadSpec     `yaml:"uploads,omitempty" json:"uploads"`
 
 	// dir is the directory of the model file: relative paths in the model start there.
 	dir string
@@ -74,7 +74,7 @@ type OutstationSpec struct {
 	// SelfAddress makes the outstation answer frames sent to the self address 65532.
 	SelfAddress bool `yaml:"self_address,omitempty" json:"self_address,omitempty"`
 	// Unsolicited configures unsolicited responses.
-	Unsolicited UnsolicitedSpec `yaml:"unsolicited,omitempty" json:"unsolicited,omitempty"`
+	Unsolicited UnsolicitedSpec `yaml:"unsolicited,omitempty" json:"unsolicited"`
 	// TimeSyncInterval, when set, makes the outstation ask for time synchronization
 	// (IIN1.4 NEED_TIME) at start and after this interval.
 	TimeSyncInterval Duration `yaml:"time_sync_interval,omitempty" json:"time_sync_interval,omitempty"`
@@ -281,7 +281,7 @@ var flagBits = map[string]app.Flags{
 // commandStatuses maps the names of command statuses to their codes.
 var commandStatuses = func() map[string]app.CommandStatus {
 	out := map[string]app.CommandStatus{}
-	for c := 0; c < 128; c++ {
+	for c := range 128 {
 		s := app.CommandStatus(c)
 		if name := s.String(); name != "" && !strings.HasPrefix(name, "STATUS(") && !strings.Contains(name, "(") {
 			out[name] = s

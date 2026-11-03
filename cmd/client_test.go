@@ -501,7 +501,7 @@ func TestMonitor(t *testing.T) {
 			}
 			return false
 		})
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			_ = st.Server().Database().UpdateAnalogInput(1, app.Analog{Value: float64(100 + i), Flags: app.FlagOnline})
 			time.Sleep(50 * time.Millisecond)
 		}
