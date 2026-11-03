@@ -7,6 +7,7 @@
 
 ### Changed
 
+- Built on go-dnp3 v1.8.0, which requires Go 1.26 and has been modernised with `go fix`. The wire behaviour is unchanged.
 - Go 1.26 is the minimum Go version for building dnp3ctl (was 1.25). CI tests Go 1.26 and 1.27.
 - The code base has been modernised with `go fix ./...`: `sync.WaitGroup.Go`, `errors.AsType`, `new(expr)`, `strings.SplitSeq`, `slices`, `maps` and range-over-int loops. The commands, flags and output are unchanged.
 
