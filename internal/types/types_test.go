@@ -13,8 +13,6 @@ type marshaler interface {
 	TableRows() [][]string
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func TestRendering(t *testing.T) {
 	m := Measurement{ReceivedAt: "2026-01-01T00:00:00.000Z", Unsolicited: true, Object: "g32v7", Group: 32, Variation: 7, Type: "analog-input",
 		Index: 3, Event: true, Value: 1.5, Flags: "ONLINE", Timestamp: "2026-01-01T00:00:00.000Z"}
@@ -33,20 +31,20 @@ func TestRendering(t *testing.T) {
 		{&PollResult{Request: "read", Objects: []string{"g30v5"}, Range: "0-9", Measurements: []Measurement{cmd}}, []string{"Read of g30v5 0-9", "LOCAL"}},
 		{&OperateResult{Mode: "sbo", Type: "crob", Object: "g12v1", Op: "PULSE_ON", TripClose: "CLOSE", Count: 2, OnTimeMs: 100, Status: "SUCCESS"},
 			[]string{"Operate (sbo) g12v1 index 0: PULSE_ON CLOSE count=2 on=100ms off=0ms", "SUCCESS"}},
-		{&OperateResult{Mode: "direct", Type: "analog", Object: "g41v3", Value: ptr(1.25), Status: "SUCCESS"}, []string{"g41v3 index 0: 1.25"}},
+		{&OperateResult{Mode: "direct", Type: "analog", Object: "g41v3", Value: new(1.25), Status: "SUCCESS"}, []string{"g41v3 index 0: 1.25"}},
 		{&OperateResult{Type: "analog", Object: "g41v1"}, []string{"g41v1 index 0: 0"}},
 		{&ConfirmedResult{Request: "time-sync", Method: "lan", Time: "T"}, []string{"time-sync (lan T)", "confirmed in"}},
-		{&ConfirmedResult{Request: "cold-restart", DelayMs: ptr(2000.0)}, []string{"poll again after 2000 ms"}},
+		{&ConfirmedResult{Request: "cold-restart", DelayMs: new(2000.0)}, []string{"poll again after 2000 ms"}},
 		{&ConfirmedResult{Request: "warm-restart"}, []string{"warm-restart ()"}},
 		{&ConfirmedResult{Request: "enable-unsolicited", Classes: []int{1, 3}}, []string{"class 1,3"}},
-		{&ConfirmedResult{Request: "assign-class", Class: ptr(2), Objects: []string{"g30v0"}, Range: "1"}, []string{"g30v0 1 to class 2"}},
+		{&ConfirmedResult{Request: "assign-class", Class: new(2), Objects: []string{"g30v0"}, Range: "1"}, []string{"g30v0 1 to class 2"}},
 		{&ConfirmedResult{Request: "assign-class", Objects: []string{"g1v0"}}, []string{"g1v0 to class 0"}},
 		{&ConfirmedResult{Request: "freeze", Objects: []string{"g20v0"}, NoAck: true}, []string{"g20v0", "sent without acknowledgement"}},
 		{&ConfirmedResult{Request: "delete-file", Path: "/x"}, []string{"delete-file (/x)"}},
 		{&ConfirmedResult{Request: "freeze", Objects: []string{"g20v0"}, Broadcast: "confirm"}, []string{"every outstation (broadcast, confirm)", "a broadcast is not answered"}},
 		{&ConfirmedResult{Request: "freeze-at-time", Objects: []string{"g20v0"}, Range: "0-3", Time: "T", Interval: "15m0s"}, []string{"g20v0 0-3 at T every 15m0s"}},
 		{&ConfirmedResult{Request: "freeze-at-time", Objects: []string{"g30v0"}, Time: "T"}, []string{"(g30v0 at T)"}},
-		{&ConfirmedResult{Request: "write-attribute", Set: ptr(1), Attribute: &Attribute{Variation: 2, Name: "attribute-2", Value: float64(42)}}, []string{"set 1 variation 2 attribute-2 = 42"}},
+		{&ConfirmedResult{Request: "write-attribute", Set: new(1), Attribute: &Attribute{Variation: 2, Name: "attribute-2", Value: float64(42)}}, []string{"set 1 variation 2 attribute-2 = 42"}},
 		{&ConfirmedResult{Request: "write-attribute"}, []string{"write-attribute ()"}},
 		{&OperateResult{Mode: "direct", Type: "crob", Object: "g12v1", Op: "LATCH_ON", Broadcast: "no-confirm", Status: "not-reported"}, []string{"on every outstation (broadcast, no-confirm)"}},
 		{&AttributesResult{Set: 2, Count: 0}, []string{"Device attributes (set 2)"}},
@@ -64,12 +62,12 @@ func TestRendering(t *testing.T) {
 		{&FileTransferResult{Direction: "download", Path: "/a", Local: "a", Length: 3, SHA256: "ab"}, []string{"Fetched /a from", "sha256: ab", "local:  a"}},
 		{&FileTransferResult{Direction: "upload", Path: "/a", Length: 3}, []string{"Delivered /a to"}},
 		{&ObjectsResult{Count: 2, Objects: []ObjectInfo{{Object: "g30v5", Name: "Analog Input", Size: 5}, {Object: "g70v5", Name: "File"}}}, []string{"g30v5    Analog Input"}},
-		{&DiscoverResult{Hosts: 2, Found: 1, Devices: []DiscoveredDevice{{IP: "10.0.0.1", Port: 20000, Status: "dnp3", Outstation: ptr(uint16(10)), Master: ptr(uint16(1))}, {IP: "10.0.0.2", Port: 20000, Status: "open"}}},
+		{&DiscoverResult{Hosts: 2, Found: 1, Devices: []DiscoveredDevice{{IP: "10.0.0.1", Port: 20000, Status: "dnp3", Outstation: new(uint16(10)), Master: new(uint16(1))}, {IP: "10.0.0.2", Port: 20000, Status: "open"}}},
 			[]string{"1 DNP3 outstations among 2 hosts", "outstation 10", "outstation -"}},
-		{&ServerEvent{Timestamp: "T", Event: "control", Remote: "r", Function: "OPERATE", Object: "g12v1", Index: ptr(uint32(0)), Value: true, Status: "SUCCESS", Detail: "d"},
+		{&ServerEvent{Timestamp: "T", Event: "control", Remote: "r", Function: "OPERATE", Object: "g12v1", Index: new(uint32(0)), Value: true, Status: "SUCCESS", Detail: "d"},
 			[]string{"control", "OPERATE", "g12v1 index=0", "on", "SUCCESS", "d"}},
 		{&ServerEvent{Timestamp: "T", Event: "listening"}, []string{"listening"}},
-		{&ServerEvent{Timestamp: "T", Event: "control", Outstation: ptr(uint16(11))}, []string{"control           [11]"}},
+		{&ServerEvent{Timestamp: "T", Event: "control", Outstation: new(uint16(11))}, []string{"control           [11]"}},
 	} {
 		text, err := c.v.MarshalTextOutput()
 		if err != nil {

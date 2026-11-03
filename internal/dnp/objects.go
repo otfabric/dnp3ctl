@@ -12,8 +12,8 @@ import (
 // KnownObjects returns every group and variation go-dnp3 encodes and decodes, in order.
 func KnownObjects() []app.GroupVariation {
 	var out []app.GroupVariation
-	for g := 0; g < 256; g++ {
-		for v := 0; v < 256; v++ {
+	for g := range 256 {
+		for v := range 256 {
 			if gv := app.GV(uint8(g), uint8(v)); gv.Known() {
 				out = append(out, gv)
 			}

@@ -76,8 +76,7 @@ func WrapError(err error) error {
 	case errors.Is(err, dnp3.ErrInvalidOption), errors.Is(err, app.ErrInvalidValue):
 		return errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid input: %v", err), err)
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return errs.New(errs.KindTransport, errs.CodeConnectionLost, fmt.Sprintf("connection error: %v", err), err)
 	}
 	return errs.Internal(err)

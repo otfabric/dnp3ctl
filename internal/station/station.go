@@ -396,8 +396,6 @@ func (st *Station) emit(e types.ServerEvent, own bool) {
 	st.opts.Log(e)
 }
 
-func index(i uint32) *uint32 { return &i }
-
 // handler executes controls and the optional functions of the outstation.
 type handler struct {
 	st *Station
@@ -442,7 +440,7 @@ func controlValue(v app.Value) any {
 // Select implements server.Handler.
 func (h *handler) Select(_ context.Context, c server.Command) app.CommandStatus {
 	_, status := h.check(c)
-	h.st.event(types.ServerEvent{Event: "control", Function: "SELECT", Object: c.GV.String(), Index: index(c.Index), Value: controlValue(c.Value),
+	h.st.event(types.ServerEvent{Event: "control", Function: "SELECT", Object: c.GV.String(), Index: new(c.Index), Value: controlValue(c.Value),
 		Status: status.String(), Detail: fmt.Sprintf("master %d", c.Master)})
 	return status
 }
@@ -459,7 +457,7 @@ func (h *handler) Operate(_ context.Context, c server.Command, op server.Operate
 			detail += ", " + applied
 		}
 	}
-	h.st.event(types.ServerEvent{Event: "control", Function: "OPERATE", Object: c.GV.String(), Index: index(c.Index), Value: controlValue(c.Value),
+	h.st.event(types.ServerEvent{Event: "control", Function: "OPERATE", Object: c.GV.String(), Index: new(c.Index), Value: controlValue(c.Value),
 		Status: status.String(), Detail: detail})
 	return status
 }
@@ -510,9 +508,7 @@ func (h *handler) Restart(_ context.Context, cold bool) (time.Duration, error) {
 		return 0, errors.New("restarts are not enabled")
 	}
 	h.st.event(types.ServerEvent{Event: "restart", Detail: fmt.Sprintf("%s restart in %s", kind, delay)})
-	h.st.wg.Add(1)
-	go func() {
-		defer h.st.wg.Done()
+	h.st.wg.Go(func() {
 		select {
 		case <-h.st.stop:
 			return
@@ -523,7 +519,7 @@ func (h *handler) Restart(_ context.Context, cold bool) (time.Duration, error) {
 		}
 		h.st.srv.Restart()
 		h.st.event(types.ServerEvent{Event: "restart", Detail: kind + " restart done"})
-	}()
+	})
 	return delay, nil
 }
 
@@ -574,7 +570,7 @@ func (h *handler) Application(_ context.Context, fc app.FunctionCode, _ []app.He
 
 // WriteOctetString implements server.WriteHandler.
 func (h *handler) WriteOctetString(_ context.Context, i uint32, data []byte) error {
-	h.st.event(types.ServerEvent{Event: "write", Object: "g110", Index: index(i), Value: string(data)})
+	h.st.event(types.ServerEvent{Event: "write", Object: "g110", Index: new(i), Value: string(data)})
 	return nil
 }
 

@@ -385,7 +385,7 @@ func TestServer(t *testing.T) {
 		// The event log names the master the outstation answers, not its own socket, and
 		// says connected once the first datagram names a master.
 		remotes, connected := map[string]bool{}, map[string]bool{}
-		for _, line := range strings.Split(r.stdout, "\n") {
+		for line := range strings.SplitSeq(r.stdout, "\n") {
 			f := strings.Fields(line)
 			switch {
 			case len(f) > 1 && f[1] == "connected":

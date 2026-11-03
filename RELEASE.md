@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.8.0
+
+**Date:** 2026-11-03
+**Previous release:** v0.7.7
+
+### Changed
+
+- Go 1.26 is the minimum Go version for building dnp3ctl (was 1.25). CI tests Go 1.26 and 1.27.
+- The code base has been modernised with `go fix ./...`: `sync.WaitGroup.Go`, `errors.AsType`, `new(expr)`, `strings.SplitSeq`, `slices`, `maps` and range-over-int loops. The commands, flags and output are unchanged.
+
+---
+
 ## v0.7.7
 
 **Date:** 2026-11-03

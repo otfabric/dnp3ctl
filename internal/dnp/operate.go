@@ -93,7 +93,7 @@ var analogVariations = map[uint8]struct {
 func parseIndexList(s, flag string) ([]uint32, error) {
 	var out []uint32
 	seen := map[uint32]bool{}
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		n, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s %q: use an index, or several comma-separated (0,1,4)", flag, s)

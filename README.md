@@ -1,6 +1,6 @@
 # dnp3ctl — DNP3 (IEEE 1815) Command-Line Tool: Poll, Monitor, Operate, Synchronize Time, Transfer Files & Simulate an Outstation
 
-[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI Status](https://github.com/otfabric/dnp3ctl/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/dnp3ctl/actions/workflows/ci.yml)
 [![Code Coverage](https://codecov.io/gh/otfabric/dnp3ctl/graph/badge.svg)](https://codecov.io/gh/otfabric/dnp3ctl)
@@ -335,7 +335,7 @@ Run the same commands again. They always fetch the latest release, unpack it int
 
 ### Build from source
 
-Requires Go 1.25 or later:
+Requires Go 1.26 or later:
 
 ```console
 git clone https://github.com/otfabric/dnp3ctl.git

@@ -3,6 +3,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -219,12 +220,7 @@ func TestListenTargets(t *testing.T) {
 func TestPreferCommandLine(t *testing.T) {
 	changed := func(flags ...string) func(string) bool {
 		return func(f string) bool {
-			for _, g := range flags {
-				if f == g {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(flags, f)
 		}
 	}
 	env := ConnConfig{URL: "tcp://env", IP: "192.0.2.1", Listen: ":20001", Port: 2404}
