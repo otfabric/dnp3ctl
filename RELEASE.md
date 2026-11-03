@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.7.7
+
+**Date:** 2026-11-03
+**Previous release:** v0.7.6
+
+### Changed
+
+- Built on go-dnp3 v1.7.0. The outstation answers an event READ with a count of 0 with no events, and reports the first change of a point that ASSIGN_CLASS moved out of class 0. The master accepts an AUTHENTICATE_FILE answer with an empty user name and password at offset 0, which cB-Sigma dnp3 sends. `dnp3ctl` code is unchanged.
+- README: go-dnp3 runs dnp3-interop v0.11.0, with cB-Sigma dnp3 and nfm-dnp3 added to its reference stacks.
+
+---
+
 ## v0.7.6
 
 **Date:** 2026-11-02
