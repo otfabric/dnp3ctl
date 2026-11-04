@@ -187,7 +187,7 @@ Give exactly one of `path`, `content` and `size`. Directories are implied by the
 | `accept` | Take the files masters write (`client file put`), and let them delete files (`client file rm`). Without it both are refused with PERMISSION_DENIED |
 | `dir` | Also write files masters write to this directory (relative to the model file, created if missing), under their name; delete removes them again. Without it they are kept in memory |
 
-A written file appears in its directory and can be read back.
+A written file appears in its directory and can be read back. A file may not grow past 4 294 967 295 octets, the largest size a DNP3 file object holds: a write or append past it is answered with FILE_FATAL, and nothing of that file is kept.
 
 ## What the outstation answers
 

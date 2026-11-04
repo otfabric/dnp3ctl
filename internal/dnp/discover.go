@@ -84,14 +84,18 @@ func ExpandHosts(specs []string, limit int) ([]string, error) {
 				return nil, fmt.Errorf("invalid range %q: use the form 192.168.1.10-20", spec)
 			}
 			b := addr.As4()
-			if uint8(end) < b[3] {
+			stop := byte(end & 0xFF) // ParseUint with 8 bits: at most 255
+			if stop < b[3] {
 				return nil, fmt.Errorf("invalid range %q: the end is below the start", spec)
 			}
-			for i := int(b[3]); i <= int(end); i++ {
-				b[3] = uint8(i)
+			for {
 				if err := add(netip.AddrFrom4(b).String()); err != nil {
 					return nil, err
 				}
+				if b[3] == stop {
+					break
+				}
+				b[3]++
 			}
 		default:
 			if err := add(spec); err != nil {

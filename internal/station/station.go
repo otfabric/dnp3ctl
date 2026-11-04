@@ -134,7 +134,7 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 	if u := o.Unsolicited; u.Enabled {
 		classes := make([]server.Class, 0, len(u.Classes))
 		for _, c := range u.Classes {
-			classes = append(classes, server.Class(c))
+			classes = append(classes, server.Class(c&0x3)) // validated: 1-3
 		}
 		opts = append(opts, server.WithUnsolicited(server.Unsolicited{
 			Enabled: true, Classes: classes, HoldTime: time.Duration(u.HoldTime), HoldCount: u.HoldCount,
@@ -635,7 +635,7 @@ func (st *Station) run(t server.PointType, p PointSpec) {
 // number the counter can hold.
 func counterValue(s *SimSpec, cur uint32, n int, step float64) uint32 {
 	if !strings.EqualFold(s.Mode, "ramp") && !strings.EqualFold(s.Mode, "sine") && !strings.EqualFold(s.Mode, "random") {
-		return uint32(int64(cur) + int64(step))
+		return uint32((int64(cur) + int64(step)) & math.MaxUint32)
 	}
 	v := math.Round(simValue(s, float64(cur), n, step))
 	switch {

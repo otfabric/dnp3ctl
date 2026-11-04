@@ -111,7 +111,7 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 			if info.Unsolicited {
 				summary.Unsolicited++
 			}
-			if cfg.Count != 0 && uint32(summary.Values) >= cfg.Count {
+			if cfg.Count != 0 && int64(summary.Values) >= int64(cfg.Count) {
 				cancel(nil)
 				return
 			}

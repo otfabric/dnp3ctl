@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
@@ -125,7 +126,7 @@ func Start(t testing.TB, model string, edit ...func(*station.Options)) *Station 
 		ln = tls.NewListener(ln, opts.TLS)
 	}
 	out.Station = st
-	out.Port = uint16(ln.Addr().(*net.TCPAddr).Port)
+	out.Port = port(ln)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -138,6 +139,15 @@ func Start(t testing.TB, model string, edit ...func(*station.Options)) *Station 
 	return out
 }
 
+// port returns the TCP port ln listens on.
+func port(ln net.Listener) uint16 {
+	p := ln.Addr().(*net.TCPAddr).Port
+	if p < 0 || p > 0xFFFF {
+		panic(fmt.Sprintf("stationtest: port %d", p))
+	}
+	return uint16(p)
+}
+
 // FreePort returns a loopback TCP port that was free a moment ago.
 func FreePort(t testing.TB) uint16 {
 	t.Helper()
@@ -146,7 +156,7 @@ func FreePort(t testing.TB) uint16 {
 		t.Fatal(err)
 	}
 	defer func() { _ = ln.Close() }()
-	return uint16(ln.Addr().(*net.TCPAddr).Port)
+	return port(ln)
 }
 
 // Certs is a throw-away certificate authority with a server and a client certificate, as

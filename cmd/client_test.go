@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -409,6 +410,9 @@ func TestFiles(t *testing.T) {
 		data, err := os.ReadFile(out)
 		if err != nil || len(data) != 5000 || res.Length != 5000 || res.Direction != "download" || res.Local != out || len(res.SHA256) != 64 {
 			t.Fatalf("get: %+v, %d octets, %v", res, len(data), err)
+		}
+		if fi, err := os.Stat(out); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+			t.Errorf("get: the new file has mode %v, want -rw------- (%v)", fi.Mode(), err)
 		}
 		cli(t, st, "file", "get", "--path", "/records/big.dat", "--output", out).want(t, 3).errHas(t, "pass --force")
 		cli(t, st, "file", "get", "--path", "/records/big.dat", "--output", out, "--force", "--block-size", "512").want(t, 0).has(t, "Fetched /records/big.dat", "5000 octets")

@@ -267,7 +267,7 @@ func ParsePermissions(s string) (app.Permissions, error) {
 		for i, c := range s {
 			want := "rwx"[i%3]
 			switch {
-			case byte(c) == want:
+			case c == rune(want):
 				p |= 1 << (8 - i)
 			case c != '-':
 				return 0, fmt.Errorf("invalid --permissions %q: use octal (644) or the rwx form (rw-r--r--)", s)

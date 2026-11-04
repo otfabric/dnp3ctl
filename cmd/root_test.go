@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -307,6 +308,9 @@ func TestServer(t *testing.T) {
 		}
 		path := filepath.Join(dir, "outstation.yaml")
 		run(t, "server", "generate-config", "--output", path).want(t, 0).errHas(t, "wrote "+path)
+		if fi, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+			t.Errorf("generate-config: the new file has mode %v, want -rw------- (%v)", fi.Mode(), err)
+		}
 		run(t, "server", "generate-config", "--output", path).want(t, 3).errHas(t, "pass --force")
 		run(t, "server", "generate-config", "--output", path, "--force", "--format", "json").want(t, 0)
 		run(t, "server", "generate-config", "--output", filepath.Join(dir, "no", "such", "dir.yaml")).want(t, 10)

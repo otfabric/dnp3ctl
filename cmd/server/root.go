@@ -138,7 +138,8 @@ every type, controls for its outputs and a few files. Edit it and serve it with
 "dnp3ctl server start --config <file>".
 
 The YAML form carries comments that explain every section; --format json writes the same
-model as JSON. An existing file is not overwritten without --force.`,
+model as JSON. An existing file is not overwritten without --force; a new file is
+readable by its owner only (mode 0600).`,
 		Example: `
   dnp3ctl server generate-config --output outstation.yaml
   dnp3ctl server generate-config --format json --output outstation.json
@@ -165,7 +166,7 @@ model as JSON. An existing file is not overwritten without --force.`,
 		if cfg.Force {
 			flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		}
-		f, err := os.OpenFile(cfg.Output, flags, 0o644)
+		f, err := os.OpenFile(cfg.Output, flags, 0o600)
 		if err != nil {
 			if errors.Is(err, os.ErrExist) {
 				return errs.InvalidInput(errs.CodeOutputFileCreateFailed, fmt.Sprintf("%s exists: pass --force to overwrite it", cfg.Output), err)

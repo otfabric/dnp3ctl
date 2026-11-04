@@ -407,7 +407,14 @@ func (m *Model) Validate() error {
 			bad("%s: %v", what, err)
 		}
 		for _, v := range as.Writable {
-			if _, ok := attrs[uint8(v)]; (!ok || v > 255) && err == nil {
+			if err != nil {
+				break
+			}
+			if v > 0xFF {
+				bad("%s: writable variation %d is not an attribute of the set", what, v)
+				continue
+			}
+			if _, ok := attrs[uint8(v)]; !ok {
 				bad("%s: writable variation %d is not an attribute of the set", what, v)
 			}
 		}
@@ -660,7 +667,9 @@ func wholeAttribute(n int64) (app.Attribute, bool) {
 func (as AttributeSetSpec) writable() []uint8 {
 	out := make([]uint8, 0, len(as.Writable))
 	for _, v := range as.Writable {
-		out = append(out, uint8(v))
+		if v <= 0xFF { // validate refuses the others
+			out = append(out, uint8(v))
+		}
 	}
 	return out
 }

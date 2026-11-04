@@ -89,3 +89,50 @@ func FuzzParseAttribute(f *testing.F) {
 		_, _ = ParseAttribute(value, dataType)
 	})
 }
+
+// What ParsePermissions accepts is at most rwxrwxrwx, and its rwx form parses back to
+// the same permissions.
+func FuzzParsePermissions(f *testing.F) {
+	for _, s := range []string{"", "644", "0644", "777", "1000", "rw-r--r--", "rwxrwxrwx", "---------", "Ųxr--r--", "rw-r--r-", "rwxrwxrwz"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		p, err := ParsePermissions(s)
+		if err != nil {
+			return
+		}
+		if p > 0o777 {
+			t.Fatalf("ParsePermissions(%q) = %o, more than 777", s, p)
+		}
+		text := p.String()
+		back, err := ParsePermissions(text)
+		if err != nil || back != p {
+			t.Fatalf("ParsePermissions(%q) = %o, whose form %q parses to %o, %v", s, p, text, back, err)
+		}
+	})
+}
+
+// ExpandHosts never panics, and what it accepts with a limit is at most that many
+// hosts, none twice.
+func FuzzExpandHosts(f *testing.F) {
+	for _, s := range []string{"10.0.0.1", "10.0.0.250-255", "10.0.0.0/30", "10.0.0.0/24", "10.0.0.5-4", "::1", "host", "1.2.3.4-", "0.0.0.0/0", "10.0.0.1,10.0.0.2"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		const limit = 256
+		hosts, err := ExpandHosts([]string{s}, limit)
+		if err != nil {
+			return
+		}
+		if len(hosts) > limit {
+			t.Fatalf("ExpandHosts(%q) gave %d hosts, limit %d", s, len(hosts), limit)
+		}
+		seen := map[string]bool{}
+		for _, h := range hosts {
+			if seen[h] {
+				t.Fatalf("ExpandHosts(%q) gave %s twice", s, h)
+			}
+			seen[h] = true
+		}
+	})
+}
