@@ -5,6 +5,7 @@ package dnp
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -107,6 +108,15 @@ func FlagsText(kind string, f app.Flags) string {
 }
 
 // timeText renders a DNP3 time stamp, or "" for none.
+// statisticName names the security statistic of point index i (g121, g122). An
+// index past 65535 is no statistic and is not truncated into one.
+func statisticName(i uint32) string {
+	if i > math.MaxUint16 {
+		return fmt.Sprintf("statistic %d", i)
+	}
+	return secauth.Statistic(uint16(i)).String()
+}
+
 func timeText(t app.Timestamp) string {
 	if t == 0 {
 		return ""
@@ -217,7 +227,7 @@ func ToMeasurement(m client.Measurement) types.Measurement {
 		out.Value = octetText(v.Data)
 	case app.SecurityStatistic:
 		out.Value, out.Timestamp = float64(v.Value), timeText(v.Time)
-		out.Flags, out.Statistic = FlagsText(kind, v.Flags), secauth.Statistic(m.Index).String()
+		out.Flags, out.Statistic = FlagsText(kind, v.Flags), statisticName(m.Index)
 	case app.BCD:
 		// The exact number: 16 digits do not fit the precision of a float.
 		out.Value = v.Value

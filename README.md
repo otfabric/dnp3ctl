@@ -696,7 +696,7 @@ dnp3ctl client file rm --ip 192.168.1.20 --path /config/old.xml
 DNP3CTL_FILE_PASSWORD=… dnp3ctl client file ls --ip 192.168.1.20 --file-user engineer
 ```
 
-`file ls` lists `/` without `--path`. `file get` writes to the base name of `--path` in the current directory, or to `--output` (`-` for stdout), and does not overwrite an existing file without `--force`. `file put --permissions` sets the permissions of the new file (octal `644` or `rw-r--r--`, the default). `--block-size` limits the blocks asked for or sent (by default the outstation chooses), and `--file-password-file` reads the password of `--file-user` from a file.
+`file ls` lists `/` without `--path`. `file get` writes to the base name of `--path` in the current directory, or to `--output` (`-` for stdout), and does not overwrite an existing file without `--force`; a new file is readable by its owner only (mode 0600). `file put --permissions` sets the permissions of the new file (octal `644` or `rw-r--r--`, the default). `--block-size` limits the blocks asked for or sent (by default the outstation chooses), and `--file-password-file` reads the password of `--file-user` from a file.
 
 #### Find outstations
 

@@ -217,7 +217,7 @@ func FileGet(ctx context.Context, cfg *config.FileGetConfig, trace, content io.W
 	if cfg.Force {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	}
-	f, err := os.OpenFile(out, flags, 0o644)
+	f, err := os.OpenFile(out, flags, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return nil, errs.InvalidInput(errs.CodeOutputFileCreateFailed, fmt.Sprintf("%s exists: pass --force to overwrite it", out), err)
@@ -268,6 +268,12 @@ func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*
 	if err != nil {
 		return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("input file: %v", err), err)
 	}
+	// CheckFilePut looked at the size, but the file may have grown since, or be a pipe
+	// whose size Stat does not know.
+	size := len(data)
+	if int64(size) > math.MaxUint32 {
+		return nil, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("input file %s has %d octets: the maximum is %d", cfg.Input, size, uint32(math.MaxUint32)), nil)
+	}
 	s, err := Dial(ctx, &cfg.ConnConfig, trace)
 	if err != nil {
 		return nil, err
@@ -280,7 +286,7 @@ func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*
 			return err
 		}
 		o.Permissions, o.Append = perm, cfg.Append
-		n, err = s.WriteFile(ctx, cfg.Path, bytes.NewReader(data), uint32(len(data)), o)
+		n, err = s.WriteFile(ctx, cfg.Path, bytes.NewReader(data), uint32(min(uint64(max(size, 0)), math.MaxUint32)), o)
 		return err
 	})
 	if err != nil {

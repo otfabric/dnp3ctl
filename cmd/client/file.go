@@ -82,7 +82,8 @@ func newFileGetCmd() *cobra.Command {
 		Aliases: []string{"download"},
 		Short:   "Fetch a file from the outstation",
 		Long: `Read the file --path from the outstation and write it to --output (default: its
-base name in the current directory). An existing file is not overwritten without --force.
+base name in the current directory). An existing file is not overwritten without --force;
+a new file is readable by its owner only (mode 0600).
 
 With --output - the content goes to stdout and the result (length, SHA-256) to stderr, so
 that the content can be piped.`,

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +22,13 @@ import (
 	"github.com/otfabric/dnp3ctl/internal/dnp"
 	"github.com/otfabric/dnp3ctl/internal/types"
 )
+
+// maxFileSize is the largest file a master may write: the largest size of the four
+// octets of g70 (a variable, so that tests can lower it).
+var maxFileSize int64 = math.MaxUint32
+
+// size32 returns n as the four-octet size of a g70 file: n clamped to 0..4 GiB - 1.
+func size32(n int) uint32 { return uint32(min(uint64(max(n, 0)), math.MaxUint32)) }
 
 // memEntry is one file of the outstation.
 type memEntry struct {
@@ -98,7 +106,7 @@ func (s *fileServer) list(name string) []app.FileDescriptor {
 			out = append(out, app.FileDescriptor{Name: child, Type: app.FileTypeDirectory, Created: e.created, Permissions: 0o755})
 			continue
 		}
-		out = append(out, app.FileDescriptor{Name: child, Type: app.FileTypeSimple, Size: uint32(len(e.data)), Created: e.created, Permissions: e.perm})
+		out = append(out, app.FileDescriptor{Name: child, Type: app.FileTypeSimple, Size: size32(len(e.data)), Created: e.created, Permissions: e.perm})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -115,7 +123,7 @@ func (s *fileServer) Open(_ context.Context, req server.FileRequest) (server.Fil
 	switch req.Mode {
 	case app.FileModeRead:
 		if e, ok := s.files[name]; ok {
-			return &readFile{r: bytes.NewReader(e.data), size: uint32(len(e.data)), done: func(abort bool) { s.sent(name, len(e.data), abort) }}, app.FileSuccess
+			return &readFile{r: bytes.NewReader(e.data), size: size32(len(e.data)), done: func(abort bool) { s.sent(name, len(e.data), abort) }}, app.FileSuccess
 		}
 		if s.isDir(name) {
 			var b []byte
@@ -125,7 +133,7 @@ func (s *fileServer) Open(_ context.Context, req server.FileRequest) (server.Fil
 				}
 			}
 			s.event(types.ServerEvent{Event: "file", Detail: "directory " + name})
-			return &readFile{r: bytes.NewReader(b), size: uint32(len(b))}, app.FileSuccess
+			return &readFile{r: bytes.NewReader(b), size: size32(len(b))}, app.FileSuccess
 		}
 		return nil, app.FileNotFound
 	case app.FileModeWrite, app.FileModeAppend:
@@ -181,7 +189,7 @@ func (s *fileServer) Info(_ context.Context, name string) (app.FileDescriptor, a
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.files[clean]; ok {
-		return app.FileDescriptor{Name: name, Type: app.FileTypeSimple, Size: uint32(len(e.data)), Created: e.created, Permissions: e.perm}, app.FileSuccess
+		return app.FileDescriptor{Name: name, Type: app.FileTypeSimple, Size: size32(len(e.data)), Created: e.created, Permissions: e.perm}, app.FileSuccess
 	}
 	if s.isDir(clean) {
 		return app.FileDescriptor{Name: name, Type: app.FileTypeDirectory, Created: app.TimestampOf(s.now()), Permissions: 0o755}, app.FileSuccess
@@ -246,9 +254,18 @@ type writeFile struct {
 	buf  bytes.Buffer
 }
 
-func (f *writeFile) Read([]byte) (int, error)    { return 0, io.EOF }
-func (f *writeFile) Write(p []byte) (int, error) { return f.buf.Write(p) }
-func (f *writeFile) Size() uint32                { return uint32(f.buf.Len()) }
+func (f *writeFile) Read([]byte) (int, error) { return 0, io.EOF }
+func (f *writeFile) Size() uint32             { return size32(f.buf.Len()) }
+
+// Write takes a block of the file. A file of g70 has a size of four octets, so the
+// file may not grow past 4 GiB - 1: a master that sends more gets an error, which the
+// outstation answers with FILE_FATAL, instead of the size wrapping.
+func (f *writeFile) Write(p []byte) (int, error) {
+	if int64(f.buf.Len())+int64(len(p)) > maxFileSize {
+		return 0, fmt.Errorf("%s would exceed %d octets, the largest size of a DNP3 file", f.name, maxFileSize)
+	}
+	return f.buf.Write(p)
+}
 func (f *writeFile) Close(abort bool) error {
 	if abort {
 		f.fs.event(types.ServerEvent{Event: "file", Detail: "write of " + f.name + " aborted"})

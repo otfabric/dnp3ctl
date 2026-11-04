@@ -1,5 +1,37 @@
 # dnp3ctl Releases
 
+## v0.9.0
+
+**Date:** 2026-11-04
+**Previous release:** v0.8.0
+
+### Summary
+
+Hardening from a low/low static analysis scan. The simulated outstation no longer takes uploads past 4 GiB, the rwx form of `--permissions` no longer accepts some non-ASCII characters, and new output files are created owner-only (0600). New chaos, end-to-end and fuzz tests. Exit codes and JSON output are unchanged.
+
+### Changed
+
+- Built on go-dnp3 v1.9.0. File transfer with fragments over 65547 octets now works, `FSFileServer` refuses files of 4 GiB or more, and a few out-of-range inputs that the library sent wrapped are refused.
+- `client file get` and `server generate-config` create their output file readable by its owner only (mode 0600, was 0644 before the umask). A downloaded file or an outstation model may hold configuration that is not for every user of the host. An existing file overwritten with `--force` keeps its mode.
+
+### Fixed
+
+- **Uploads past 4 GiB.** The simulated outstation took a file a master wrote, or appended to, of any length, and announced its size modulo 2^32. It now answers a write past 4 294 967 295 octets with FILE_FATAL and keeps nothing of that file.
+- **`--permissions` in the rwx form** compared the low octet of each character, so `Ųxr--r--` (U+0172 ends in 0x72, `r`) was accepted as `rwxr--r--`. Characters other than `r`, `w`, `x` and `-` are refused.
+- **Security statistics with an index over 65535** (g121, g122) were named after the index modulo 2^16; they are now shown as `statistic <index>`.
+- `client file put` checks the size of the data it read, not only of the file it looked at before: a file that grew past 4 GiB in between, or a pipe, is refused with `invalid_input` instead of its size being sent modulo 2^32.
+- A model's writable attribute variation over 255 is refused without first being looked up modulo 256.
+
+### Quality
+
+- Low/low static analysis (gosec, opengrep): every narrowing integer conversion is range-checked where the scanner can see it. The findings that remain (files the operator names, `--tls-insecure`, math/rand in the random simulation mode) are reviewed and recorded.
+- Chaos tests: `client file get` and `client poll` through a connection cut mid-transfer, against a peer that sends noise and one that hangs up. Each ends within its timeout with the documented exit code and error kind, and leaves no partial output file.
+- An end-to-end test of an upload past the outstation's limit over DNP3, and unit tests of the size limit, the rwx parser, statistic names, the last octet of host ranges and the mode of new output files.
+- Fuzz targets `FuzzParsePermissions` and `FuzzExpandHosts`.
+- CI uses the shared workflows v3.3.1.
+
+---
+
 ## v0.8.0
 
 **Date:** 2026-11-03
