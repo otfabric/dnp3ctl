@@ -10,9 +10,23 @@
 
 It is built for commissioning and site acceptance tests, point-to-point checks, troubleshooting a link between a master and its outstations, and hardware-free test setups. Output can be plain text, a table or JSON with stable exit codes, so it works in scripts and CI. It speaks TCP, TLS, UDP and serial, and Secure Authentication v5. It is written in Go on top of [go-dnp3](https://github.com/otfabric/go-dnp3).
 
-**Quick links:** [Quick start](#quick-start) · [Features](#features) · [Installation](#installation) · [DNP3 in two minutes](#dnp3-in-two-minutes) · [Connecting](#connecting-to-an-outstation) · [Commands](#common-commands) · [Simulated outstation](#simulate-an-outstation) · [FAQ](#faq)
+**Quick links:** [Quick start](#quick-start) · [Features](#features) · [Install](#install) · [DNP3 in two minutes](#dnp3-in-two-minutes) · [Connecting](#connecting-to-an-outstation) · [Commands](#common-commands) · [Simulated outstation](#simulate-an-outstation) · [FAQ](#faq)
 
 > **Responsible use:** dnp3ctl sends real SCADA requests. Only use it on outstations and networks you own or are authorized to test. `client operate` operates breakers and changes set-points; `client restart`, `time-sync`, `freeze`, `assign-class`, `manage`, `write-attribute`, `write-deadband`, `clear-restart` and `unsolicited` change the outstation itself, and `client file put` and `rm` change its files (see [SECURITY.md](SECURITY.md#commands-that-change-an-outstation)): know what an index controls before you send to it. An outstation discards the events a master has read: polling an outstation that is in service with its master's link address takes those events away from it.
+
+## Install
+
+```bash
+curl -fsSL https://get.otfabric.io/dnp3ctl | sh
+```
+
+```powershell
+irm https://get.otfabric.io/dnp3ctl.ps1 | iex
+```
+
+Linux (amd64, arm64, armv7), macOS (Intel, Apple silicon) and Windows (amd64, arm64). The installer verifies the release's SHA-256 checksum, installs per user without `sudo` (`~/.local/bin`, Windows `%LOCALAPPDATA%\OTFabric\bin`), and upgrades in place when run again. Pin a version with `OTF_VERSION=x.y.z`; for CI, containers and device images use `OTF_UNMANAGED_INSTALL=<dir>`; all options: [otfabric/install](https://github.com/otfabric/install#options). For offline machines, the archives and checksums are on [Releases](https://github.com/otfabric/dnp3ctl/releases).
+
+From source (Go 1.26+): `go install github.com/otfabric/dnp3ctl@latest`
 
 ---
 
@@ -27,13 +41,13 @@ It is built for commissioning and site acceptance tests, point-to-point checks, 
 - **Simulate an RTU** — `server start` serves an outstation from a YAML model: values that change by themselves, event classes and buffers per master, unsolicited responses, controls with select-before-operate, restarts, attributes, files and uploads; several outstations behind one port, serial line or UDP socket.
 - **Every transport** — TCP, TLS with mutual authentication, UDP and serial lines, and the dual end point where the outstation connects to the master; Secure Authentication v5 with session key change or a pre-shared key, aggressive mode and security statistics.
 - **Script-friendly** — `--format text|json|table`, a single JSON error object on failure, stable exit codes and `DNP3CTL_*` environment variables.
-- **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/dnp3ctl/releases), with SHA-256 checksums; no runtime to install.
+- **One-line install** — Linux, macOS and Windows (x86-64 and ARM), see [Install](#install); a single binary, no runtime to install.
 
 ---
 
 ## Quick start
 
-Download a binary from [GitHub Releases](https://github.com/otfabric/dnp3ctl/releases) (see [Installation](#installation) for copy-paste commands for Linux, macOS and Windows, or build from source). No outstation at hand? Start the built-in demo outstation in one terminal:
+Install dnp3ctl (see [Install](#install)). No outstation at hand? Start the built-in demo outstation in one terminal:
 
 ```console
 dnp3ctl server start
@@ -118,12 +132,12 @@ They combine well: use dnp3ctl to drive and check an outstation from the command
 
 ## Table of Contents
 
+- [Install](#install)
 - [Why dnp3ctl?](#why-dnp3ctl)
 - [Quick start](#quick-start)
 - [How it compares](#how-it-compares)
 - [Use cases](#use-cases)
 - [Features](#features)
-- [Installation](#installation)
 - [DNP3 in two minutes](#dnp3-in-two-minutes)
 - [Usage](#usage)
   - [General CLI usage](#general-cli-usage)
@@ -204,149 +218,6 @@ dnp3ctl
 ├── discover             Find DNP3 outstations on subnets
 ├── completion           Generate shell completion script (bash|zsh|fish|powershell)
 └── version              Print version
-```
-
-## Installation
-
-The easiest way to install dnp3ctl is to download a pre-built binary from the [GitHub Releases page](https://github.com/otfabric/dnp3ctl/releases). No Go toolchain is required.
-
-| Platform | CPU | Download |
-|---|---|---|
-| Linux | x86-64 | `dnp3ctl-<version>-linux-amd64.tar.gz` |
-| Linux | 64-bit ARM (Raspberry Pi 4/5 with a 64-bit OS, AWS Graviton) | `dnp3ctl-<version>-linux-arm64.tar.gz` |
-| Linux | 32-bit ARM, ARMv7 (Raspberry Pi 2 and later with a 32-bit OS) | `dnp3ctl-<version>-linux-armv7.tar.gz` |
-| macOS | Apple Silicon (M1 and later) | `dnp3ctl-<version>-darwin-arm64.tar.gz` |
-| macOS | Intel | `dnp3ctl-<version>-darwin-amd64.tar.gz` |
-| Windows | x86-64 | `dnp3ctl-<version>-windows-amd64.zip` |
-| Windows | ARM64 | `dnp3ctl-<version>-windows-arm64.zip` |
-
-Each release also contains `dnp3ctl-<version>-checksums.txt` (SHA-256) so you can verify your download. The commands below fetch the **latest** release, verify its checksum and install it. Afterwards, check that it works:
-
-```console
-dnp3ctl version
-```
-
-### Linux
-
-```bash
-# 1. Find the latest version and your CPU architecture
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/dnp3ctl/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  x86_64)         ARCH=amd64 ;;
-  aarch64|arm64)  ARCH=arm64 ;;
-  armv7l)         ARCH=armv7 ;;
-  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="dnp3ctl-${VERSION}-linux-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/dnp3ctl/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/dnp3ctl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "dnp3ctl-${VERSION}-checksums.txt" | sha256sum -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-rm -rf dnp3ctl-dl && mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
-sudo install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-linux-${ARCH}" /usr/local/bin/dnp3ctl
-```
-
-No `sudo`? Install into your home directory instead (and make sure `~/.local/bin` is in your `PATH`):
-
-```bash
-mkdir -p ~/.local/bin
-install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-linux-${ARCH}" ~/.local/bin/dnp3ctl
-```
-
-To use a serial port without root, add yourself to the group that owns it (`dialout` on Debian and Ubuntu, `uucp` on Arch), then log in again.
-
-### macOS
-
-```bash
-# 1. Find the latest version and your CPU architecture (arm64 = Apple Silicon, x86_64 = Intel)
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/dnp3ctl/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  arm64)   ARCH=arm64 ;;
-  x86_64)  ARCH=amd64 ;;
-  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="dnp3ctl-${VERSION}-darwin-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/dnp3ctl/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/dnp3ctl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "dnp3ctl-${VERSION}-checksums.txt" | shasum -a 256 -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-rm -rf dnp3ctl-dl && mkdir -p dnp3ctl-dl && tar -xzf "${FILE}" -C dnp3ctl-dl
-sudo install -m 0755 "dnp3ctl-dl/dnp3ctl-${VERSION}-darwin-${ARCH}" /usr/local/bin/dnp3ctl
-```
-
-If you downloaded the archive with a web browser instead of `curl` and macOS refuses to run the binary ("cannot be verified"), remove the quarantine flag: `xattr -d com.apple.quarantine /usr/local/bin/dnp3ctl`.
-
-### Windows (PowerShell)
-
-```powershell
-# 1. Find the latest version and your CPU architecture
-$version = (Invoke-RestMethod https://api.github.com/repos/otfabric/dnp3ctl/releases/latest).tag_name.TrimStart('v')
-$arch    = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
-
-# 2. Download the archive and the checksum file
-$file = "dnp3ctl-$version-windows-$arch.zip"
-$base = "https://github.com/otfabric/dnp3ctl/releases/download/v$version"
-Invoke-WebRequest "$base/$file" -OutFile "$env:TEMP\$file"
-Invoke-WebRequest "$base/dnp3ctl-$version-checksums.txt" -OutFile "$env:TEMP\dnp3ctl-checksums.txt"
-
-# 3. Verify the download (throws an error on mismatch)
-$expected = ((Select-String -Path "$env:TEMP\dnp3ctl-checksums.txt" -Pattern $file).Line -split '\s+')[0]
-$actual   = (Get-FileHash "$env:TEMP\$file" -Algorithm SHA256).Hash
-if ($expected -ne $actual) { throw "Checksum mismatch for $file" }
-
-# 4. Extract to a per-user folder and name the program dnp3ctl.exe
-#    (the .exe in the archive carries the version and platform in its name)
-$dir = "$env:LOCALAPPDATA\Programs\dnp3ctl"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Remove-Item -Recurse -Force "$env:TEMP\dnp3ctl-dl" -ErrorAction SilentlyContinue
-Expand-Archive "$env:TEMP\$file" -DestinationPath "$env:TEMP\dnp3ctl-dl" -Force
-Copy-Item "$env:TEMP\dnp3ctl-dl\dnp3ctl-$version-windows-$arch.exe" "$dir\dnp3ctl.exe" -Force
-
-# 5. Add dnp3ctl to your user PATH (then open a new terminal)
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$dir*") {
-  [Environment]::SetEnvironmentVariable('Path', "$userPath;$dir", 'User')
-}
-```
-
-If Windows SmartScreen warns about an unrecognised app, choose **More info → Run anyway**.
-
-### Manual download
-
-1. Open the [latest release](https://github.com/otfabric/dnp3ctl/releases/latest).
-2. Download the archive for your platform from the table above.
-3. Extract it, rename the binary to `dnp3ctl` (`dnp3ctl.exe` on Windows) and move it to a folder on your `PATH`.
-
-### Update
-
-Run the same commands again. They always fetch the latest release, unpack it into an emptied `dnp3ctl-dl` folder and overwrite the previous binary.
-
-### Build from source
-
-Requires Go 1.26 or later:
-
-```console
-git clone https://github.com/otfabric/dnp3ctl.git
-cd dnp3ctl
-make build
-```
-
-`make build` runs `make check` first, which needs `staticcheck`, `golangci-lint` and `govulncheck` on your `PATH`, and writes the binary to **`bin/dnp3ctl`** (see [Building](#building)). Without those tools, `go build -o bin/dnp3ctl .` builds it alone. With a Go toolchain you can also install straight from the module (`dnp3ctl version` then reports the version the go toolchain records: the module version with `go install`, such as `v0.6.3`, and with a plain `go build` in a clone the version it derives from the git tags, such as `v0.6.3+dirty`, with the commit; `dev` when none is recorded, as in a copy without git):
-
-```console
-go install github.com/otfabric/dnp3ctl@latest
 ```
 
 ---
