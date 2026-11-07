@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,15 +24,6 @@ import (
 )
 
 func TestVersionHelpAndUsage(t *testing.T) {
-	SetBuildMeta("1.2.3", "v1.2.3", "abc1234", "2026-01-31T12:00:00Z")
-	t.Cleanup(func() { SetBuildMeta("dev", "", "", "") })
-	run(t, "version").want(t, 0).has(t, "dnp3ctl version: 1.2.3", "tag:         v1.2.3", "commit:      abc1234", "build date:  2026-01-31T12:00:00Z", "go version:", "platform:")
-	SetBuildMeta(" ", "", "", "")
-	r := run(t, "version").want(t, 0).has(t, "dnp3ctl version: (unknown)")
-	if strings.Contains(r.stdout, "commit:") {
-		t.Errorf("empty build metadata is printed:\n%s", r.stdout)
-	}
-
 	run(t).want(t, 0).has(t, "Available Commands", "client", "server", "discover", "completion", "version")
 	run(t, "client").want(t, 0).has(t, "poll", "read", "monitor", "operate", "time-sync", "restart", "unsolicited", "assign-class", "freeze", "attributes", "ping", "file", "objects")
 	run(t, "client", "file").want(t, 0).has(t, "ls", "info", "get", "put", "rm")
@@ -114,35 +104,6 @@ func TestUsageErrorsHonourFormat(t *testing.T) {
 	}
 }
 
-// A binary built without the ldflags of the Makefile (go install, go build) reports what the
-// go toolchain recorded: the version of the module and the git revision.
-func TestVersionFromBuildInfo(t *testing.T) {
-	rev := []debug.BuildSetting{{Key: "vcs.revision", Value: "0123456789abcdef0123456789abcdef01234567"}, {Key: "vcs.modified", Value: "false"}}
-	for _, c := range []struct {
-		name, version, commit   string
-		info                    *debug.BuildInfo
-		wantVersion, wantCommit string
-	}{
-		{"ldflags win", "v0.6.3", "abc1234", &debug.BuildInfo{Main: debug.Module{Version: "v9.9.9"}, Settings: rev}, "v0.6.3", "abc1234"},
-		{"go install of a version", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3"}}, "v0.6.3", ""},
-		{"go build without a version", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: rev}, "dev", "0123456"},
-		{"go build in a clone", "dev", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3-0.20261020120000-0123456789ab"}}, "v0.6.3-0.20261020120000-0123456789ab", ""},
-		{"no module version", "dev", "", &debug.BuildInfo{}, "dev", ""},
-		{"no build info", "dev", "", nil, "dev", ""},
-		{"empty version", " ", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.6.3"}}, "v0.6.3", ""},
-		{"short revision", "dev", "", &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}}}, "dev", "abc"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			v, commit := versionOf(c.version, c.commit, c.info)
-			if v != c.wantVersion || commit != c.wantCommit {
-				t.Errorf("versionOf(%q, %q) = %q, %q; want %q, %q", c.version, c.commit, v, commit, c.wantVersion, c.wantCommit)
-			}
-		})
-	}
-	SetBuildMeta("dev", "", "", "")
-	run(t, "version").want(t, 0).has(t, "dnp3ctl version: ")
-}
-
 func TestCompletion(t *testing.T) {
 	for shell, marker := range map[string]string{
 		"bash":       "__start_dnp3ctl",
@@ -172,6 +133,13 @@ func TestCompletion(t *testing.T) {
 		{[]string{"client", "poll", "--parity", ""}, []string{"none", "even", "odd"}},
 		{[]string{"client", "poll", "--sa-mac", "hmac-sha256"}, []string{"hmac-sha256-16", "hmac-sha256-8"}},
 		{[]string{"server", "generate-config", "--format", ""}, []string{"yaml", "json"}},
+		{[]string{"server", "start", "--sa-mac", ""}, []string{"hmac-sha1-10", "hmac-sha256-16"}},
+		{[]string{"server", "start", "--stop-bits", ""}, []string{"1", "2"}},
+		{[]string{"client", "poll", "--data-bits", ""}, []string{"5", "8"}},
+		{[]string{"server", "start", "--config", ""}, []string{"yaml", "json", ":8"}},
+		{[]string{"client", "poll", "--tls-ca", ""}, []string{"pem", ":8"}},
+		{[]string{"client", "poll", "--ip", ""}, []string{":4"}},
+		{[]string{"discover", "--format", ""}, []string{"json"}},
 		{[]string{"completion", ""}, []string{"bash", "zsh", "fish", "powershell"}},
 	} {
 		r := run(t, append([]string{cobra.ShellCompNoDescRequestCmd}, c.args...)...).want(t, 0)

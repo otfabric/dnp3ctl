@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/otfabric/dnp3ctl/internal/cli"
 	"github.com/otfabric/dnp3ctl/internal/config"
+	"github.com/otfabric/dnp3ctl/internal/dnp"
 	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/format"
 	"github.com/otfabric/dnp3ctl/internal/runner"
@@ -99,6 +102,9 @@ model to restrict it.`,
 	runner.RegisterCommandCfg(cmd, &cfg, func(c *cobra.Command) {
 		_ = c.MarkFlagFilename("config", "yaml", "yml", "json")
 		_ = cli.RegisterEnumFlagCompletion(c, "parity", []string{"none", "even", "odd"})
+		_ = cli.RegisterEnumFlagCompletion(c, "data-bits", []string{"5", "6", "7", "8"})
+		_ = cli.RegisterEnumFlagCompletion(c, "stop-bits", []string{"1", "2"})
+		_ = cli.RegisterEnumFlagCompletion(c, "sa-mac", slices.Sorted(maps.Keys(dnp.MACAlgorithms)))
 		for _, f := range []string{"tls-cert", "tls-key", "tls-client-ca", "tls-ca"} {
 			_ = c.MarkFlagFilename(f, "pem", "crt", "cer", "key")
 		}

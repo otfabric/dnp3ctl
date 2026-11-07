@@ -30,7 +30,7 @@ From source (Go 1.26+): `go install github.com/otfabric/dnp3ctl@latest`
 
 ### Shell completion
 
-Flags with a fixed set of values complete to those values, **`--object`** to the objects dnp3ctl knows.
+Flags with a fixed set of values complete to those values, **`--object`** to the objects dnp3ctl knows, file flags to files of their type, and addresses and numbers to no file names.
 
 ```bash
 # bash (needs the bash-completion package)
@@ -239,7 +239,7 @@ dnp3ctl
 │   └── generate-config  Write an example outstation model
 ├── discover             Find DNP3 outstations on subnets
 ├── completion           Generate shell completion script (bash|zsh|fish|powershell)
-└── version              Print version
+└── version              Print the version line (--json: one JSON line)
 ```
 
 ---
@@ -294,7 +294,7 @@ dnp3ctl server start
 dnp3ctl server generate-config
 
 dnp3ctl discover
-dnp3ctl version
+dnp3ctl version [--json]
 ```
 
 Every command has `--help`, with a description and examples. Some have a shorter name as well: `client integrity` (`poll`), `control` (`operate`), `time` (`time-sync`), `attrs` or `info` (`attributes`), and `client file list` or `dir` (`ls`), `stat` (`info`), `download` (`get`), `upload` (`put`), `delete` or `del` (`rm`).

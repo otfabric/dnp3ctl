@@ -46,7 +46,7 @@ func TestVersionPrintsTheBuiltVersion(t *testing.T) {
 	if want == "" {
 		t.Fatal("DNP3CTL_E2E_VERSION is not set; run make e2e")
 	}
-	if !strings.Contains(output, "dnp3ctl") || !strings.Contains(output, want) {
+	if !strings.HasPrefix(output, "dnp3ctl "+want+" (") {
 		t.Fatalf("output does not name dnp3ctl %s:\n%s", want, output)
 	}
 }

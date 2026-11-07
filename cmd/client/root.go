@@ -97,6 +97,8 @@ func objectCompletion(cmd *cobra.Command) {
 // connCompletion completes the flags every client command has.
 func connCompletion(cmd *cobra.Command) {
 	_ = cli.RegisterEnumFlagCompletion(cmd, "parity", []string{"none", "even", "odd"})
+	_ = cli.RegisterEnumFlagCompletion(cmd, "data-bits", []string{"5", "6", "7", "8"})
+	_ = cli.RegisterEnumFlagCompletion(cmd, "stop-bits", []string{"1", "2"})
 	mac := map[string]string{}
 	for k := range dnp.MACAlgorithms {
 		mac[k] = "HMAC MAC of secure authentication"
