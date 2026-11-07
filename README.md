@@ -28,6 +28,28 @@ Linux (amd64, arm64, armv7), macOS (Intel, Apple silicon) and Windows (amd64, ar
 
 From source (Go 1.26+): `go install github.com/otfabric/dnp3ctl@latest`
 
+### Shell completion
+
+Flags with a fixed set of values complete to those values, **`--object`** to the objects dnp3ctl knows.
+
+```bash
+# bash (needs the bash-completion package)
+mkdir -p ~/.local/share/bash-completion/completions
+dnp3ctl completion bash > ~/.local/share/bash-completion/completions/dnp3ctl
+
+# zsh: a directory on your fpath, then restart the shell
+mkdir -p ~/.zsh/completions && dnp3ctl completion zsh > ~/.zsh/completions/_dnp3ctl
+# and once in ~/.zshrc:  fpath=(~/.zsh/completions $fpath); autoload -U compinit && compinit
+
+# fish
+mkdir -p ~/.config/fish/completions && dnp3ctl completion fish > ~/.config/fish/completions/dnp3ctl.fish
+```
+
+```powershell
+# PowerShell: add this line to your profile ($PROFILE)
+dnp3ctl completion powershell | Out-String | Invoke-Expression
+```
+
 ---
 
 ## Why dnp3ctl?
@@ -298,8 +320,6 @@ Every command has `--help`, with a description and examples. Some have a shorter
 | 130 | Interrupted before a result |
 
 See [docs/exitcodes.md](docs/exitcodes.md) for the details and the `code` values.
-
-**Shell completion:** `dnp3ctl completion bash` (or `zsh`, `fish`, `powershell`) prints a completion script; for example `source <(dnp3ctl completion bash)`. Flags with a fixed set of values complete to those values, **`--object`** to the objects dnp3ctl knows.
 
 ### Connecting to an outstation
 
