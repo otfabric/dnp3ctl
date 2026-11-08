@@ -1,5 +1,16 @@
 # dnp3ctl Releases
 
+## v0.10.1
+
+**Date:** 2026-11-08
+**Previous release:** v0.10.0
+
+### Changed
+
+- Release binaries are built with the latest Go 1.26 patch release; v0.10.0 was built with go1.26.0.
+
+---
+
 ## v0.10.0
 
 **Date:** 2026-11-07
