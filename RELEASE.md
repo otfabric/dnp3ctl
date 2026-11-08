@@ -1,5 +1,17 @@
 # dnp3ctl Releases
 
+## v0.11.0
+
+**Date:** 2026-11-08
+**Previous release:** v0.10.1
+
+### Changed
+
+- Built on go-dnp3 v1.9.1, whose decoders, master and outstation were checked against 182 recorded DNP3 captures (ITI, Zeek, igbe; software-generated or of unknown origin, no hardware claim).
+- Outstation (`station`): a READ of object group 0 variation 0 is answered with IIN2.1 (object unknown) alone; an outstation without attribute sets used to answer IIN2.2 as well.
+
+---
+
 ## v0.10.1
 
 **Date:** 2026-11-08
