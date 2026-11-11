@@ -115,7 +115,8 @@ func newFilePutCmd() *cobra.Command {
 		Short:   "Write a file to the outstation",
 		Long: `Send the local file --input to the outstation as --path, with the permissions of
 --permissions (default rw-r--r--). With --append the content is added to the end of the
-file instead (OPEN_FILE in APPEND mode), for logs and other files that grow.
+file instead (OPEN_FILE in APPEND mode), for logs and other files that grow. The file's
+time of creation is --created, or the time of the request.
 
 THIS CHANGES THE OUTSTATION: an existing file of that name is replaced (or added to), and
 the file may be a configuration the outstation acts on. The transfer is not repeated.`,

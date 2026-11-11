@@ -493,25 +493,33 @@ func TestMonitor(t *testing.T) {
 		r.errHas(t, "monitor: connected", "3 values")
 	})
 	t.Run("unsolicited changes", func(t *testing.T) {
+		enables := func() int {
+			n := 0
+			for _, e := range st.Events() {
+				if e.Function == "ENABLE_UNSOLICITED" {
+					n++
+				}
+			}
+			return n
+		}
+		// The earlier subtests enabled unsolicited responses already: wait for this monitor's
+		// ENABLE_UNSOLICITED, the last step of its startup, after the integrity poll.
+		before := enables()
 		done := make(chan result, 1)
 		go func() {
 			done <- cli(t, st, "monitor", "--object", "g32", "--count", "2", "--format", "json")
 		}()
-		eventually(t, "unsolicited responses to be enabled", func() bool {
-			for _, e := range st.Events() {
-				if e.Function == "ENABLE_UNSOLICITED" {
-					return true
-				}
-			}
-			return false
-		})
+		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() > before })
 		for i := range 2 {
 			_ = st.Server().Database().UpdateAnalogInput(1, app.Analog{Value: float64(100 + i), Flags: app.FlagOnline})
 			time.Sleep(50 * time.Millisecond)
 		}
 		r := (<-done).want(t, 0)
 		lines := r.lines(t)
-		if len(lines) != 2 || lines[0]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
+		// The station records ENABLE_UNSOLICITED once it handled it, which can be before
+		// the master finished its startup; under load the first change then reached the
+		// monitor in a solicited response. The second change, 50 ms later, is unsolicited.
+		if len(lines) != 2 || lines[1]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
 			t.Errorf("unsolicited: %v", lines)
 		}
 	})
@@ -537,12 +545,12 @@ func TestMonitor(t *testing.T) {
 			}
 			return false
 		})
-		// After a restart the outstation has forgotten the enabled classes: the monitor
-		// enables them again, and events keep coming.
+		// After a restart the outstation has forgotten the enabled classes: the master's
+		// restart procedure enables them again, and events keep coming.
 		other.Server().Restart()
 		eventually(t, "unsolicited responses to be enabled again", func() bool { return enables() == 2 })
 		_ = other.Server().Database().UpdateAnalogInput(1, app.Analog{Value: 7, Flags: app.FlagOnline})
-		r := (<-done).want(t, 0).errHas(t, "unsolicited responses enabled again")
+		r := (<-done).want(t, 0).errHas(t, "the outstation reported a restart")
 		if lines := r.lines(t); len(lines) != 1 || lines[0]["unsolicited"] != true {
 			t.Errorf("after the restart: %v", lines)
 		}

@@ -498,7 +498,7 @@ uploads: {accept: true, dir: up}
 	}
 	fs.dir = filepath.Join(dir, "a.txt-is-a-file")
 	_ = os.WriteFile(fs.dir, nil, 0o600)
-	if err := fs.store("/x/y", []byte("z"), 0o600); err == nil {
+	if err := fs.store("/x/y", []byte("z"), 0o600, 0); err == nil {
 		t.Error("storing below a file worked")
 	}
 }
@@ -638,7 +638,10 @@ func TestRun(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- Run(ctx, cfg, l.log, nil, func(net.Addr) {}) }()
 
-		c, err := client.Dial(ctx, "serial", client.WithStream(func(context.Context) (io.ReadWriteCloser, net.Addr, error) { return master, nil, nil }))
+		// No startup poll and no time synchronization (go-dnp3 v1.11 defaults): the read
+		// below is the only request.
+		c, err := client.Dial(ctx, "serial", client.WithStream(func(context.Context) (io.ReadWriteCloser, net.Addr, error) { return master, nil, nil }),
+			client.WithStartup(client.Startup{}), client.WithTimeSync(client.TimeSyncNone))
 		if err != nil {
 			t.Fatal(err)
 		}

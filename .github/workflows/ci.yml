@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.3.1
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.6.0
     with:
       run-govulncheck: true
       coverage-min: "85"
@@ -26,7 +26,9 @@ jobs:
       test-exclude-regex: "/example(s)?($|/)"
       coverpkg: ./...
       fuzz-time: 10s
-      policy-version: v1.4.2
+      # The golangci-lint `make check` runs (the shared default is v2.1.6).
+      golangci-lint-version: v2.15.0
+      policy-version: v1.5.0
     secrets: inherit
 
   # go-ci gates the total; this gates each package (COVER_PKG_MIN).

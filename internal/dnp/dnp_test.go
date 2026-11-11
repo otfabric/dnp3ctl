@@ -303,7 +303,7 @@ func TestOptionsAndSecureAuth(t *testing.T) {
 	c := base()
 	c.Outstation = uint16(link.SelfAddress)
 	c.ResponseTimeout, c.Retries, c.Debug = 100, 2, true
-	if _, opts, _, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 7 {
+	if _, opts, _, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 6 {
 		t.Errorf("options: %d, %v", len(opts), err)
 	}
 

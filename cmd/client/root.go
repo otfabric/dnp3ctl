@@ -36,7 +36,13 @@ flags, as a TLS server.
 Secure Authentication v5 is enabled by the update key in --sa-update-key-file (or
 DNP3CTL_SA_UPDATE_KEY), or by a pre-shared session key in --sa-key-file (or
 DNP3CTL_SA_KEY), as hex; keys are never accepted on the command line. --sa-aggressive
-sends critical requests in aggressive mode.`,
+sends critical requests in aggressive mode, --sa-challenge-macs limits the MAC
+algorithms a challenge may ask for, and --sa-key-change-count changes the session keys
+after that many authentication messages.
+
+The one-shot commands do exactly what they are asked: no integrity poll at connect, no
+time synchronization when the outstation asks for it (NEED_TIME), no clear of its restart
+indication. "client monitor" runs those procedures of a long-running master.`,
 	}
 	cmd.AddCommand(
 		newPollCmd(),
@@ -104,6 +110,7 @@ func connCompletion(cmd *cobra.Command) {
 		mac[k] = "HMAC MAC of secure authentication"
 	}
 	_ = cli.RegisterEnumFlagCompletionWithDescriptions(cmd, "sa-mac", mac)
+	_ = cli.RegisterEnumFlagCompletion(cmd, "sa-challenge-macs", dnp.ChallengeMACNames())
 	for _, f := range []string{"tls-ca", "tls-cert", "tls-key"} {
 		_ = cmd.MarkFlagFilename(f, "pem", "crt", "cer", "key")
 	}

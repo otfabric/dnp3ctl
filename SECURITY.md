@@ -50,7 +50,7 @@ Plain DNP3 carries no encryption, and without Secure Authentication no authentic
 
 Keys are handled as follows:
 
-- They are read from files (`--sa-update-key-file`, `--sa-key-file`) or environment variables (`DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`), as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the files to the environment on shared hosts. Give one kind of key, not both
+- They are read from files (`--sa-update-key-file`, `--sa-key-file`) or environment variables (`DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`), as hex, and **never** accepted as a flag: a flag would end up in the shell history and the process list. Keep key files readable by you alone (`chmod 600`), and prefer the files to the environment on shared hosts. On Unix, dnp3ctl warns on stderr when a key file or the file of `--file-password-file` can be accessed by its group or by others, and uses it all the same. Give one kind of key, not both
 - The MAC defaults to HMAC-SHA-256 truncated to 16 octets; the HMAC-SHA-1 variants exist for older outstations
 - **Aggressive mode** (`--sa-aggressive`, `DNP3CTL_SA_AGGRESSIVE`; clause 7.5.2.2.4): once the outstation has challenged one request, the master sends further critical requests with their MAC over that last challenge, without waiting for a new one. It saves a round trip per control and needs a key like any secure authentication; the outstation checks the MAC and the challenge sequence number. Within one command it applies from the second critical request on: in `client operate --mode sbo` the OPERATE after the challenged SELECT
 - **Security statistics** (clause 7.6): an outstation with secure authentication counts, per master, its authentication failures, session key changes, critical messages and the other statistics of the standard. `client read --object g121v1` shows them by name; the simulated outstation keeps them and reports g122 events in class 1 every 10 increments (by default; `--sa-statistics-class`, `--sa-statistics-threshold`). A rising `authentication failures` or `unexpected messages` count is worth a look
@@ -94,7 +94,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 
 ### Running a Server
 
-- `server start` listens on **all network interfaces** and accepts **any client** by default. Use `--listen` to bind to one address, `--allow` to restrict the clients, `masters` in the model to restrict the link addresses answered, or a host firewall
+- `server start` listens on **all network interfaces** and accepts **any client** by default. Use `--listen` to bind to one address, `--allow` to restrict the clients, `--master-ips` to restrict the masters over TCP, TLS and UDP alike, `masters` in the model to restrict the link addresses answered, or a host firewall
 - The simulated outstation executes every control it is sent on its simulated points, and takes and deletes files when the model accepts uploads. With `uploads.dir` written files are stored below that directory under their (cleaned) name; a name cannot escape the directory
 - A model may reference files on disk (`files[].path`): the server serves whatever those paths name to any client it accepts
 

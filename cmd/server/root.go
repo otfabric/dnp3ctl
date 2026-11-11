@@ -64,8 +64,16 @@ connection ends. With --sa-update-key-file or --sa-key-file (or DNP3CTL_SA_UPDAT
 DNP3CTL_SA_KEY) it requires Secure Authentication v5: critical requests are challenged,
 or accepted in aggressive mode, and executed only with the right MAC; the security
 statistics of every master are kept (g121, events g122 of --sa-statistics-class every
---sa-statistics-threshold increments), and a challenge waits --sa-reply-timeout for its
-reply.
+--sa-statistics-threshold increments, or per statistic with --sa-threshold), and a
+challenge waits --sa-reply-timeout for its reply. --sa-no-aggressive refuses aggressive
+mode; session keys expire after --sa-expected-key-change-interval seconds or
+--sa-expected-key-change-count messages without a change.
+
+--master-ips answers masters from those addresses only, over TCP, TLS and UDP; --udp-fixed
+with --udp-peer sends every response to that address and port. --max-controls,
+--max-tx-fragment and --max-rx-fragment limit requests and responses;
+--deadband-integer-only reports deadbands without floating point; an open file no
+request names for --file-timeout seconds is closed with a HANDLE_EXPIRED event.
 
 Every event (connections, requests, controls, management functions, unsolicited responses,
 file transfers) is written to stdout as it happens: one line with --format text, one JSON
@@ -110,6 +118,7 @@ model to restrict it.`,
 		}
 		_ = c.MarkFlagFilename("sa-key-file")
 		_ = cli.RegisterEnumFlagCompletion(c, "sa-statistics-class", []string{"1", "2", "3"})
+		_ = cli.RegisterEnumFlagCompletion(c, "file-timeout-class", []string{"1", "2", "3"})
 	})
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		cfg.Debug = cli.Debug(cmd)

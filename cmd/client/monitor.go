@@ -31,8 +31,21 @@ the classes of --unsolicited (default 1,2,3; "none" to leave them as they are) a
 values; it is repeated when the outstation reports a restart or a lost event. With
 --poll-interval the events of classes 1-3 are also polled at that interval, for
 outstations that do not report unsolicited. When the outstation reports a restart, the
-master clears its restart indication and enables unsolicited responses again, since an
-outstation that restarted has forgotten them.
+master runs the restart procedure of IEEE 1815-2012 clause 5.1.1.1.2: it clears the
+restart indication, synchronizes the time when asked, and with --integrity polls, and
+enables unsolicited responses again, since an outstation that restarted has forgotten
+them. With unsolicited classes the startup also disables unsolicited responses and runs
+an integrity poll before enabling them (clause 5.1.1.2 Rule 1).
+
+Unlike the one-shot commands, the monitor answers NEED_TIME by itself (clause 4.5.5):
+--time-sync auto (the default) uses the LAN procedure over TCP, TLS and UDP and the
+non-LAN one over serial; lan and non-lan always use that procedure, clear-need-time only
+clears the indication, and none leaves it set. --auto-event-poll polls the classes the
+outstation reports events for. --dual-endpoint also takes the connections a tcp://
+outstation establishes, on that address, while connecting to it as well (the master's
+own connection has priority); --dual-endpoint-allow restricts who may connect.
+--reconnect-jitter randomizes the reconnect delays. With secure authentication the
+master's own security statistics are printed to stderr at the end.
 
 Monitoring runs until interrupted (Ctrl-C), or until --duration seconds have passed or
 --count values were printed. A lost connection is established again (turn that off with
@@ -43,9 +56,10 @@ line with --format json, or one table row with --format table. Connection state 
 and a summary go to stderr.
 
 Events an outstation has reported to this master are gone from its buffer: monitoring
-with the link address of the regular master takes its events away. An outstation also
-takes a second connection from the same master address for that master reconnecting, and
-drops the first: run other commands next to a monitor with another --master.`,
+with the link address of the regular master takes its events away. An outstation that
+follows IEEE 1815-2012 clause 13.2.3.3 refuses a second connection from the master
+address of a connected master that answers it, and replaces only a broken one: run other
+commands next to a monitor with another --master.`,
 		Example: `
   # Watch everything outstation 10 reports, starting with an integrity poll
   dnp3ctl client monitor --ip 192.168.1.20 --integrity
@@ -64,7 +78,7 @@ drops the first: run other commands next to a monitor with another --master.`,
 `,
 	}
 	cfg := config.MonitorConfig{ConnConfig: connDefaults(), Unsolicited: "1,2,3", OutputFormat: text}
-	wire(cmd, &cfg, enum("unsolicited", "1,2,3", "none"))
+	wire(cmd, &cfg, enum("unsolicited", "1,2,3", "none"), described("time-sync", dnp.TimeSyncModes()))
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		cfg.Debug = cli.Debug(cmd)
 		return runner.RunStream(cmd, cfg.OutputFormat,

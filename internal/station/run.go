@@ -7,12 +7,14 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/otfabric/go-dnp3/secauth"
 	"github.com/otfabric/go-dnp3/server"
 
 	"github.com/otfabric/dnp3ctl/internal/config"
@@ -67,23 +69,7 @@ func dialTarget(cfg *config.ServerConfig) (*config.Target, *tls.Config, error) {
 }
 
 func parseAllow(list []string) ([]netip.Prefix, error) {
-	var out []netip.Prefix
-	for _, s := range list {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		if p, err := netip.ParsePrefix(s); err == nil {
-			out = append(out, p.Masked())
-			continue
-		}
-		addr, err := netip.ParseAddr(s)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --allow %q: use an address or a CIDR prefix", s)
-		}
-		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
-	}
-	return out, nil
+	return dnp.ParsePrefixes(list, "--allow")
 }
 
 // LoadModels returns the models of cfg: the files --config names, or the built-in demo. The
@@ -117,6 +103,7 @@ type plan struct {
 	opts   Options
 	allow  []netip.Prefix
 	peer   net.Addr       // the master of --udp-peer, or nil
+	fixed  bool           // --udp-fixed: responses always go to peer
 	dial   *config.Target // the master of --dial, or nil
 }
 
@@ -168,17 +155,76 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	if user == nil && (cfg.SAReplyTimeout != 0 || cfg.SAStatisticsClass != 0 || cfg.SAStatisticsEvery != 0) {
-		return nil, fmt.Errorf("--sa-reply-timeout and the security statistics flags need secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)")
+	if user == nil && (cfg.SAReplyTimeout != 0 || cfg.SAStatisticsClass != 0 || cfg.SAStatisticsEvery != 0 || len(cfg.SAThresholds) > 0 ||
+		cfg.SANoAggressive || cfg.SAExpectedKeyInterval != 0 || cfg.SAExpectedKeyCount != 0 || cfg.SAMaxKeyStatus != 0) {
+		return nil, fmt.Errorf("--sa-reply-timeout, the security statistics flags and the expected key change flags need secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)")
 	}
-	if cfg.SAStatisticsClass > 3 {
+	thresholds, err := parseThresholds(cfg.SAThresholds)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case cfg.SAStatisticsClass > 3:
 		return nil, fmt.Errorf("invalid --sa-statistics-class %d: use 1-3", cfg.SAStatisticsClass)
+	case cfg.SAStatisticsEvery > math.MaxUint16:
+		return nil, fmt.Errorf("invalid --sa-statistics-threshold %d: use 1-65535", cfg.SAStatisticsEvery)
+	case cfg.SAMaxKeyStatus == 1:
+		return nil, fmt.Errorf("invalid --sa-max-key-status-requests 1: use 2-255")
+	case cfg.FileTimeout > 3600:
+		return nil, fmt.Errorf("invalid --file-timeout %d: use 1-3600 seconds", cfg.FileTimeout)
+	case cfg.FileTimeoutClass > 3:
+		return nil, fmt.Errorf("invalid --file-timeout-class %d: use 1-3", cfg.FileTimeoutClass)
+	case cfg.UDPFixed && cfg.UDPPeer == "":
+		return nil, fmt.Errorf("--udp-fixed needs --udp-peer")
+	}
+	for name, n := range map[string]uint16{"--max-tx-fragment": cfg.MaxTxFragment, "--max-rx-fragment": cfg.MaxRxFragment} {
+		if n != 0 && n < minFragment {
+			return nil, fmt.Errorf("invalid %s %d: use at least %d", name, n, minFragment)
+		}
+	}
+	masterIPs, err := dnp.ParsePrefixes(cfg.MasterIPs, "--master-ips")
+	if err != nil {
+		return nil, err
+	}
+	if len(masterIPs) > 0 && cfg.Serial != "" {
+		return nil, fmt.Errorf("--master-ips does not apply to --serial")
 	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
-	return &plan{models: models, allow: allow, peer: peer, dial: dial, opts: Options{
+	return &plan{models: models, allow: allow, peer: peer, dial: dial, fixed: cfg.UDPFixed, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
 		AuthReplyTimeout: time.Duration(cfg.SAReplyTimeout) * time.Millisecond, StatisticsClass: cfg.SAStatisticsClass, StatisticsThreshold: cfg.SAStatisticsEvery,
+		Thresholds: thresholds, NoAggressive: cfg.SANoAggressive, ExpectedKeyChangeInterval: time.Duration(cfg.SAExpectedKeyInterval) * time.Second,
+		ExpectedKeyChangeCount: cfg.SAExpectedKeyCount, MaxKeyStatusRequests: int(cfg.SAMaxKeyStatus),
+		MasterIPs: masterIPs, MaxControls: int(cfg.MaxControls), MaxTxFragment: int(cfg.MaxTxFragment), MaxRxFragment: int(cfg.MaxRxFragment),
+		DeadbandIntegerOnly: cfg.DeadbandIntegerOnly, FileTimeout: time.Duration(cfg.FileTimeout) * time.Second, FileTimeoutClass: cfg.FileTimeoutClass,
 	}}, nil
+}
+
+// minFragment is the smallest fragment IEEE 1815-2012 clause 4.3 allows a device to be
+// limited to.
+const minFragment = 249
+
+// parseThresholds parses --sa-threshold: index=threshold pairs of the security statistics
+// of IEEE 1815-2012 Table 7-6.
+func parseThresholds(list []string) (map[secauth.Statistic]uint16, error) {
+	var out map[secauth.Statistic]uint16
+	for _, item := range list {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(item, "=")
+		i, ierr := strconv.ParseUint(strings.TrimSpace(k), 10, 16)
+		n, nerr := strconv.ParseUint(strings.TrimSpace(v), 10, 16)
+		if !ok || ierr != nil || nerr != nil || i >= uint64(secauth.NumStatistics) || n == 0 {
+			return nil, fmt.Errorf("invalid --sa-threshold %q: use index=threshold, index 0-%d, threshold 1-65535", item, secauth.NumStatistics-1)
+		}
+		if out == nil {
+			out = map[secauth.Statistic]uint16{}
+		}
+		out[secauth.Statistic(i)] = uint16(n)
+	}
+	return out, nil
 }
 
 // Check validates the configuration of `server start`, the model included.
@@ -271,10 +317,12 @@ func Run(ctx context.Context, cfg *config.ServerConfig, log func(types.ServerEve
 		}
 		addr = pc.LocalAddr()
 		f.event(types.ServerEvent{Event: "listening", Remote: "udp://" + addr.String(), Detail: detail})
-		if p.peer != nil {
-			st := f.Stations()[0]
+		switch st := f.Stations()[0]; {
+		case p.peer != nil && p.fixed:
+			go func() { served <- st.ServeUDPFixed(pc, p.peer) }()
+		case p.peer != nil:
 			go func() { served <- st.ServeUDPTo(pc, p.peer) }()
-		} else {
+		default:
 			go func() { served <- f.ServeUDP(pc) }()
 		}
 	default:

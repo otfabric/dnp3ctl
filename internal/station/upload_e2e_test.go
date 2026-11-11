@@ -20,7 +20,8 @@ import (
 func TestUploadPastLimitOverDNP3(t *testing.T) {
 	defer station.SetMaxFileSize(1000)()
 	st := stationtest.Start(t, stationtest.Model)
-	c, err := client.New(st.Addr(), client.WithAddresses(1, link.Address(10)), client.WithResponseTimeout(2*time.Second))
+	c, err := client.New(st.Addr(), client.WithAddresses(1, link.Address(10)), client.WithResponseTimeout(2*time.Second),
+		client.WithStartup(client.Startup{}), client.WithTimeSync(client.TimeSyncNone))
 	if err != nil {
 		t.Fatal(err)
 	}

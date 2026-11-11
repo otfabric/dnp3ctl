@@ -23,7 +23,7 @@ import (
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/link"
 	"github.com/otfabric/go-dnp3/server"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/otfabric/dnp3ctl/internal/dnp"
 )
@@ -95,7 +95,7 @@ type OutstationSpec struct {
 	Indications []string `yaml:"indications,omitempty" json:"indications,omitempty"`
 	// RefusedFunctions are the management functions the outstation refuses with
 	// NO_FUNC_CODE_SUPPORT: initialize-data, initialize-application, start-application,
-	// stop-application or save-configuration. It accepts the others.
+	// stop-application, save-configuration or activate-config. It accepts the others.
 	RefusedFunctions []string `yaml:"refused_functions,omitempty" json:"refused_functions,omitempty"`
 	// AttributeSets are further sets of device attributes, which a master reads and writes
 	// with the set number (IEEE 1815-2012 clause 11.9.1).
@@ -387,7 +387,7 @@ func (m *Model) Validate() error {
 	}
 	for _, name := range o.RefusedFunctions {
 		if _, err := dnp.ManagementFunction(name); err != nil {
-			bad("outstation.refused_functions: %q: use initialize-data, initialize-application, start-application, stop-application or save-configuration", name)
+			bad("outstation.refused_functions: %q: use initialize-data, initialize-application, start-application, stop-application, save-configuration or activate-config", name)
 		}
 	}
 	sets := map[uint16]bool{}

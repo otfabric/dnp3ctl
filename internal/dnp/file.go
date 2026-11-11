@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/client"
@@ -43,6 +44,7 @@ func filePassword(cfg config.FileAuthConfig) (string, error) {
 	case cfg.FilePasswordFile != "" && cfg.FilePassword != "":
 		return "", fmt.Errorf("--file-password-file and DNP3CTL_FILE_PASSWORD are mutually exclusive")
 	case cfg.FilePasswordFile != "":
+		checkSecretFile(cfg.FilePasswordFile, "file password")
 		data, err := os.ReadFile(cfg.FilePasswordFile)
 		if err != nil {
 			return "", fmt.Errorf("reading the file password: %w", err)
@@ -243,6 +245,9 @@ func CheckFilePut(cfg *config.FilePutConfig) error {
 	if _, err := ParsePermissions(cfg.Permissions); err != nil {
 		return err
 	}
+	if _, err := parseCreated(cfg.Created); err != nil {
+		return err
+	}
 	if cfg.Input == "" {
 		return fmt.Errorf("no input given: set --input to the file to send")
 	}
@@ -258,9 +263,23 @@ func CheckFilePut(cfg *config.FilePutConfig) error {
 	return nil
 }
 
+// parseCreated parses --created of `client file put`: an RFC 3339 time, or empty (and now)
+// for the time of the request.
+func parseCreated(s string) (time.Time, error) {
+	t, err := ParseTime(s, func() time.Time { return time.Time{} })
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid --created %q: use now or an RFC 3339 time such as 2026-01-31T12:00:00Z", strings.TrimSpace(s))
+	}
+	return t, nil
+}
+
 // FilePut writes a local file to the outstation.
 func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*types.FileTransferResult, error) {
 	perm, err := ParsePermissions(cfg.Permissions)
+	if err != nil {
+		return nil, err
+	}
+	created, err := parseCreated(cfg.Created)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +304,7 @@ func FilePut(ctx context.Context, cfg *config.FilePutConfig, trace io.Writer) (*
 		if err != nil {
 			return err
 		}
-		o.Permissions, o.Append = perm, cfg.Append
+		o.Permissions, o.Append, o.Created = perm, cfg.Append, created
 		n, err = s.WriteFile(ctx, cfg.Path, bytes.NewReader(data), uint32(min(uint64(max(size, 0)), math.MaxUint32)), o)
 		return err
 	})

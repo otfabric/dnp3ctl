@@ -56,17 +56,23 @@ type ConnConfig struct {
 	LinkConfig
 	AuthConfig
 	AddressConfig
-	URL             string `env:"DNP3CTL_URL" desc:"Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port" flag:"url"`
-	IP              string `env:"DNP3CTL_IP" desc:"Outstation IP address or host name, over TCP (used when --url is not set)" flag:"ip"`
-	Port            uint16 `env:"DNP3CTL_PORT" desc:"Outstation TCP port (used when --url is not set), or the port of --listen" flag:"port"`
-	Listen          string `env:"DNP3CTL_MASTER_LISTEN" desc:"Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip" flag:"listen"`
-	UDPLocalPort    uint16 `env:"DNP3CTL_UDP_LOCAL_PORT" desc:"With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port" flag:"udp-local-port"`
-	Timeout         uint32 `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds for connecting and for each request, retries included (0 = 10000)" flag:"timeout"`
-	ResponseTimeout uint32 `env:"DNP3CTL_RESPONSE_TIMEOUT" desc:"Wait in milliseconds for each fragment of a response (0 = 5000)" flag:"response-timeout"`
-	SAKeyChange     uint32 `env:"DNP3CTL_SA_KEY_CHANGE_INTERVAL" desc:"Seconds between session key changes while connected, with an update key (0 = 900)" flag:"sa-key-change-interval"`
-	SAAggressive    bool   `env:"DNP3CTL_SA_AGGRESSIVE" desc:"Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key" flag:"sa-aggressive"`
-	Retries         uint8  `env:"DNP3CTL_RETRIES" desc:"Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes" flag:"retries"`
-	Debug           bool   // set from global --debug (root persistent flag)
+	URL                string `env:"DNP3CTL_URL" desc:"Outstation URL: tcp://host[:port], tls://host[:port], udp://host[:port] or serial:///dev/ttyUSB0 (ports default to 20000, and 19999 for tls); mutually exclusive with --ip/--port" flag:"url"`
+	IP                 string `env:"DNP3CTL_IP" desc:"Outstation IP address or host name, over TCP (used when --url is not set)" flag:"ip"`
+	Port               uint16 `env:"DNP3CTL_PORT" desc:"Outstation TCP port (used when --url is not set), or the port of --listen" flag:"port"`
+	Listen             string `env:"DNP3CTL_MASTER_LISTEN" desc:"Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip" flag:"listen"`
+	UDPLocalPort       uint16 `env:"DNP3CTL_UDP_LOCAL_PORT" desc:"With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port" flag:"udp-local-port"`
+	Timeout            uint32 `env:"DNP3CTL_TIMEOUT" desc:"Timeout in milliseconds for connecting and for each request, retries included (0 = 10000)" flag:"timeout"`
+	ResponseTimeout    uint32 `env:"DNP3CTL_RESPONSE_TIMEOUT" desc:"Wait in milliseconds for each fragment of a response (0 = 5000)" flag:"response-timeout"`
+	SAKeyChange        uint32 `env:"DNP3CTL_SA_KEY_CHANGE_INTERVAL" desc:"Seconds between session key changes while connected, with an update key (0 = 900)" flag:"sa-key-change-interval"`
+	SAAggressive       bool   `env:"DNP3CTL_SA_AGGRESSIVE" desc:"Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key" flag:"sa-aggressive"`
+	Retries            uint8  `env:"DNP3CTL_RETRIES" desc:"Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes" flag:"retries"`
+	RetryJitter        uint8  `env:"DNP3CTL_RETRY_JITTER" desc:"With --retries: randomize each pause between attempts by up to this percentage, 0-100, so that masters do not retry together (0 = exact doubling)" flag:"retry-jitter"`
+	SAChallengeMACs    string `env:"DNP3CTL_SA_CHALLENGE_MACS" desc:"MAC algorithms an outstation's challenge may ask for, comma-separated, from hmac-sha256-16, hmac-sha256-8, hmac-sha1-10, hmac-sha1-8 and hmac-sha1-4 (default: all but hmac-sha1-4, and over TCP and UDP all but the 8-octet ones); needs a key" flag:"sa-challenge-macs"`
+	SAKeyChangeCount   uint32 `env:"DNP3CTL_SA_KEY_CHANGE_COUNT" desc:"Change the session keys after this many authentication messages, with an update key (0 = 1000)" flag:"sa-key-change-count"`
+	MaxFragment        uint16 `env:"DNP3CTL_MAX_FRAGMENT" desc:"Largest response fragment to reassemble, in octets, 249-65535 (0 = 2048; below 2048 is outside IEEE 1815-2012 clause 4.3 Rule 3)" flag:"max-fragment"`
+	MaxRequestFragment uint16 `env:"DNP3CTL_MAX_REQUEST_FRAGMENT" desc:"Largest request fragment to send, in octets, at least 249 (0 = no limit); a request that does not fit is refused, file blocks are sized to fit" flag:"max-request-fragment"`
+	NoSolicitedConfirm bool   `env:"DNP3CTL_NO_SOLICITED_CONFIRM" desc:"Do not confirm responses that ask for a confirmation (diagnostics only: the outstation keeps its events and sends no further fragment)" flag:"no-solicited-confirm"`
+	Debug              bool   // set from global --debug (root persistent flag)
 }
 
 // PollConfig drives `client poll`.
@@ -107,15 +113,22 @@ type OperateConfig struct {
 // MonitorConfig drives `client monitor`.
 type MonitorConfig struct {
 	ConnConfig
-	Integrity    bool   `env:"DNP3CTL_INTEGRITY" desc:"Run an integrity poll after connecting (and after every reconnect), so the stream starts with all current values" flag:"integrity"`
-	Unsolicited  string `env:"DNP3CTL_UNSOLICITED" desc:"Classes to enable unsolicited responses for after connecting, comma-separated, or none" flag:"unsolicited"`
-	PollInterval uint32 `env:"DNP3CTL_POLL_INTERVAL" desc:"Also poll the events of classes 1-3 every this many seconds (0 = do not poll)" flag:"poll-interval"`
-	Objects      string `env:"DNP3CTL_OBJECT" desc:"Only show these objects: groups or group/variations, comma-separated" flag:"object"`
-	Indexes      string `env:"DNP3CTL_INDEX" desc:"Only show these point indexes: list and ranges" flag:"index"`
-	Duration     uint32 `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
-	Count        uint32 `env:"DNP3CTL_COUNT" desc:"Stop after this many values (0 = until interrupted)" flag:"count"`
-	NoReconnect  bool   `env:"DNP3CTL_NO_RECONNECT" desc:"Exit when the connection is lost instead of reconnecting" flag:"no-reconnect"`
-	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	Integrity            bool     `env:"DNP3CTL_INTEGRITY" desc:"Run an integrity poll after connecting (and after every reconnect), so the stream starts with all current values" flag:"integrity"`
+	Unsolicited          string   `env:"DNP3CTL_UNSOLICITED" desc:"Classes to enable unsolicited responses for after connecting, comma-separated, or none" flag:"unsolicited"`
+	PollInterval         uint32   `env:"DNP3CTL_POLL_INTERVAL" desc:"Also poll the events of classes 1-3 every this many seconds (0 = do not poll)" flag:"poll-interval"`
+	Objects              string   `env:"DNP3CTL_OBJECT" desc:"Only show these objects: groups or group/variations, comma-separated" flag:"object"`
+	Indexes              string   `env:"DNP3CTL_INDEX" desc:"Only show these point indexes: list and ranges" flag:"index"`
+	Duration             uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
+	Count                uint32   `env:"DNP3CTL_COUNT" desc:"Stop after this many values (0 = until interrupted)" flag:"count"`
+	NoReconnect          bool     `env:"DNP3CTL_NO_RECONNECT" desc:"Exit when the connection is lost instead of reconnecting" flag:"no-reconnect"`
+	ReconnectJitter      uint8    `env:"DNP3CTL_RECONNECT_JITTER" desc:"Randomize each delay before a reconnect by up to this percentage, 0-100, so that masters that lost their connections together do not reconnect together (0 = exact doubling)" flag:"reconnect-jitter"`
+	TimeSync             string   `env:"DNP3CTL_TIME_SYNC" desc:"What to do when the outstation asks for the time (NEED_TIME): auto (LAN procedure over TCP, TLS and UDP, non-LAN over serial), lan, non-lan, clear-need-time (clear the indication only) or none" flag:"time-sync"`
+	AutoEventPoll        bool     `env:"DNP3CTL_AUTO_EVENT_POLL" desc:"Poll the event classes the outstation reports events for (IIN1.1-1.3)" flag:"auto-event-poll"`
+	QueueLimit           uint16   `env:"DNP3CTL_QUEUE_LIMIT" desc:"Requests that may wait for their turn, polls and automatic tasks (0 = 64)" flag:"queue-limit"`
+	NoUnsolicitedConfirm bool     `env:"DNP3CTL_NO_UNSOLICITED_CONFIRM" desc:"Do not confirm unsolicited responses (diagnostics only: the outstation repeats them, and may answer no request until it is confirmed)" flag:"no-unsolicited-confirm"`
+	DualEndpoint         string   `env:"DNP3CTL_DUAL_ENDPOINT" desc:"Also take the connections the outstation establishes, on this address (host:port or :port), while connecting to it as well (TCP dual end point; the master's own connection has priority); not with --listen, udp:// or serial://" flag:"dual-endpoint"`
+	DualEndpointAllow    []string `env:"DNP3CTL_DUAL_ENDPOINT_ALLOW" desc:"With --dual-endpoint: only take connections from these addresses or CIDR prefixes (default: any)" flag:"dual-endpoint-allow"`
+	OutputFormat         string   `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // PingConfig drives `client ping`.
@@ -129,7 +142,7 @@ type PingConfig struct {
 // TimeSyncConfig drives `client time-sync`.
 type TimeSyncConfig struct {
 	ConnConfig
-	Method       string `env:"DNP3CTL_TIME_METHOD" desc:"Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay) or write (the time of --time, without correction)" flag:"method"`
+	Method       string `env:"DNP3CTL_TIME_METHOD" desc:"Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay), write (the time of --time, without correction) or clear-need-time (clear NEED_TIME, IIN1.4, without setting the time)" flag:"method"`
 	Time         string `env:"DNP3CTL_TIME" desc:"Time to write with --method write: now, or an RFC 3339 time such as 2026-01-31T12:00:00Z" flag:"time"`
 	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
@@ -191,8 +204,10 @@ type WriteAttributeConfig struct {
 // ManageConfig drives `client manage`.
 type ManageConfig struct {
 	ConnConfig
-	Function     string `env:"DNP3CTL_MANAGE_FUNCTION" desc:"Management function: initialize-data, initialize-application, start-application, stop-application or save-configuration" flag:"function"`
-	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
+	Function      string   `env:"DNP3CTL_MANAGE_FUNCTION" desc:"Management function: initialize-data, initialize-application, start-application, stop-application, save-configuration or activate-config" flag:"function"`
+	ConfigNames   []string `env:"DNP3CTL_ACTIVATE_FILE" desc:"With activate-config: configurations to activate, as names of files on the outstation (file specifications, g70v8)" flag:"config-name"`
+	ConfigStrings []string `env:"DNP3CTL_ACTIVATE_STRING" desc:"With activate-config: configurations to activate, as octet strings (g110), 1-255 octets each" flag:"config-string"`
+	OutputFormat  string   `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
 // ClearRestartConfig drives `client clear-restart`.
@@ -252,6 +267,7 @@ type FilePutConfig struct {
 	Input        string `env:"DNP3CTL_INPUT" desc:"Local file whose content is sent" flag:"input"`
 	Permissions  string `env:"DNP3CTL_PERMISSIONS" desc:"Permissions of the new file: octal (644) or rwx form (rw-r--r--)" flag:"permissions"`
 	Append       bool   `env:"DNP3CTL_APPEND" desc:"Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode)" flag:"append"`
+	Created      string `env:"DNP3CTL_FILE_CREATED" desc:"Time of creation to give the file: an RFC 3339 time such as 2026-01-31T12:00:00Z (default: now)" flag:"created"`
 	OutputFormat string `env:"DNP3CTL_FORMAT" desc:"Output format: text, json, or table" flag:"format"`
 }
 
@@ -288,25 +304,38 @@ type ServerConfig struct {
 	LinkConfig
 	SerialConfig
 	AuthConfig
-	Config            []string `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served. Give it several times (or comma-separated) to serve several outstations, each at its own link address, behind the same port, serial line or UDP socket" flag:"config"`
-	Listen            string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
-	Port              uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
-	UDP               bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
-	Dial              string   `env:"DNP3CTL_DIAL" desc:"Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends" flag:"dial"`
-	UDPPeer           string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
-	Serial            string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
-	Cert              string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master)" flag:"tls-cert"`
-	Key               string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
-	CACert            string   `env:"DNP3CTL_TLS_CA" desc:"With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots)" flag:"tls-ca"`
-	ClientCA          string   `env:"DNP3CTL_TLS_CLIENT_CA" desc:"PEM file with the CA certificates masters must present a certificate of (mutual TLS)" flag:"tls-client-ca"`
-	Allow             []string `env:"DNP3CTL_ALLOW" desc:"Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any)" flag:"allow"`
-	SAReplyTimeout    uint32   `env:"DNP3CTL_SA_REPLY_TIMEOUT" desc:"Secure authentication: milliseconds a challenge waits for the master's reply (0 = 10000)" flag:"sa-reply-timeout"`
-	SAStatisticsClass uint8    `env:"DNP3CTL_SA_STATISTICS_CLASS" desc:"Secure authentication: event class 1-3 of security statistic events, g122 (0 = 1)" flag:"sa-statistics-class"`
-	SAStatisticsEvery uint32   `env:"DNP3CTL_SA_STATISTICS_THRESHOLD" desc:"Secure authentication: increments of a security statistic between two of its events (0 = 10)" flag:"sa-statistics-threshold"`
-	MaxSessions       uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`
-	Duration          uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
-	OutputFormat      string   `env:"DNP3CTL_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
-	Debug             bool     // set from global --debug (root persistent flag)
+	Config                []string `env:"DNP3CTL_CONFIG" desc:"Outstation model file (YAML or JSON); without it a built-in demo outstation is served. Give it several times (or comma-separated) to serve several outstations, each at its own link address, behind the same port, serial line or UDP socket" flag:"config"`
+	Listen                string   `env:"DNP3CTL_LISTEN" desc:"Address to listen on (TCP, TLS and UDP)" flag:"listen"`
+	Port                  uint16   `env:"DNP3CTL_PORT" desc:"Port to listen on (0 = 20000, or 19999 with TLS)" flag:"port"`
+	UDP                   bool     `env:"DNP3CTL_UDP" desc:"Serve DNP3 over UDP instead of TCP (one master at a time)" flag:"udp"`
+	Dial                  string   `env:"DNP3CTL_DIAL" desc:"Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends" flag:"dial"`
+	UDPPeer               string   `env:"DNP3CTL_UDP_PEER" desc:"With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything" flag:"udp-peer"`
+	Serial                string   `env:"DNP3CTL_SERIAL" desc:"Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits" flag:"serial"`
+	Cert                  string   `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master)" flag:"tls-cert"`
+	Key                   string   `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
+	CACert                string   `env:"DNP3CTL_TLS_CA" desc:"With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots)" flag:"tls-ca"`
+	ClientCA              string   `env:"DNP3CTL_TLS_CLIENT_CA" desc:"PEM file with the CA certificates masters must present a certificate of (mutual TLS)" flag:"tls-client-ca"`
+	Allow                 []string `env:"DNP3CTL_ALLOW" desc:"Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any)" flag:"allow"`
+	SAReplyTimeout        uint32   `env:"DNP3CTL_SA_REPLY_TIMEOUT" desc:"Secure authentication: milliseconds a challenge waits for the master's reply (0 = 2000)" flag:"sa-reply-timeout"`
+	SAStatisticsClass     uint8    `env:"DNP3CTL_SA_STATISTICS_CLASS" desc:"Secure authentication: event class 1-3 of security statistic events, g122 (0 = 1)" flag:"sa-statistics-class"`
+	SAStatisticsEvery     uint32   `env:"DNP3CTL_SA_STATISTICS_THRESHOLD" desc:"Secure authentication: increments of a security statistic between two of its events, 1-65535, for every statistic --sa-threshold does not name (0 = the defaults of IEEE 1815-2012 Table 7-6)" flag:"sa-statistics-threshold"`
+	SAThresholds          []string `env:"DNP3CTL_SA_THRESHOLD" desc:"Secure authentication: the event threshold of single statistics, as index=threshold (index 0-17 of IEEE 1815-2012 Table 7-6, threshold 1-65535), comma-separated" flag:"sa-threshold"`
+	SANoAggressive        bool     `env:"DNP3CTL_SA_NO_AGGRESSIVE" desc:"Secure authentication: refuse aggressive mode requests (error 4, aggressive mode not supported)" flag:"sa-no-aggressive"`
+	SAExpectedKeyInterval uint32   `env:"DNP3CTL_SA_EXPECTED_KEY_CHANGE_INTERVAL" desc:"Secure authentication: seconds session keys stay valid without a session key change (0 = 1800); not for a pre-shared session key" flag:"sa-expected-key-change-interval"`
+	SAExpectedKeyCount    uint32   `env:"DNP3CTL_SA_EXPECTED_KEY_CHANGE_COUNT" desc:"Secure authentication: authentication messages session keys serve without a session key change (0 = 2000)" flag:"sa-expected-key-change-count"`
+	SAMaxKeyStatus        uint8    `env:"DNP3CTL_SA_MAX_KEY_STATUS_REQUESTS" desc:"Secure authentication: key status requests within the expected key change interval before the outstation logs an error, 2-255 (0 = 5)" flag:"sa-max-key-status-requests"`
+	MasterIPs             []string `env:"DNP3CTL_MASTER_IPS" desc:"Only answer masters from these IP addresses or CIDR prefixes, over TCP, TLS and UDP: other connections are closed, other datagrams ignored (default: any)" flag:"master-ips"`
+	UDPFixed              bool     `env:"DNP3CTL_UDP_FIXED" desc:"With --udp-peer: always send to that address and port, and take datagrams from its IP address only (a fixed master port, IEEE 1815-2012 Table 13-1 case 1)" flag:"udp-fixed"`
+	MaxControls           uint16   `env:"DNP3CTL_MAX_CONTROLS" desc:"Controls one request may carry; the others are answered TOO_MANY_OBJS (0 = 16)" flag:"max-controls"`
+	MaxTxFragment         uint16   `env:"DNP3CTL_MAX_TX_FRAGMENT" desc:"Largest response fragment to send, in octets, at least 249 (0 = 2048)" flag:"max-tx-fragment"`
+	MaxRxFragment         uint16   `env:"DNP3CTL_MAX_RX_FRAGMENT" desc:"Largest request fragment to reassemble, in octets, at least 249 (0 = 2048)" flag:"max-rx-fragment"`
+	DeadbandIntegerOnly   bool     `env:"DNP3CTL_DEADBAND_INTEGER_ONLY" desc:"Report analog input deadbands in g34v1 and g34v2 only, rounded, for masters without floating point; a read of g34v3 is answered IIN2.1" flag:"deadband-integer-only"`
+	FileTimeout           uint32   `env:"DNP3CTL_FILE_TIMEOUT" desc:"Seconds an open file may go without a request naming it before the outstation closes it and reports HANDLE_EXPIRED, 1-3600 (0 = 300)" flag:"file-timeout"`
+	FileTimeoutClass      uint8    `env:"DNP3CTL_FILE_TIMEOUT_CLASS" desc:"Event class 1-3 of the HANDLE_EXPIRED file event, g70v6 (0 = 1)" flag:"file-timeout-class"`
+	MaxSessions           uint16   `env:"DNP3CTL_MAX_SESSIONS" desc:"Maximum number of simultaneous connections (0 = 16)" flag:"max-sessions"`
+	Duration              uint32   `env:"DNP3CTL_DURATION" desc:"Stop after this many seconds (0 = until interrupted)" flag:"duration"`
+	OutputFormat          string   `env:"DNP3CTL_FORMAT" desc:"Format of the event log on stdout: text, json, or table" flag:"format"`
+	Debug                 bool     // set from global --debug (root persistent flag)
 }
 
 // GenerateConfigConfig drives `server generate-config`.

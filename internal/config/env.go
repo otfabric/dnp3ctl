@@ -14,11 +14,16 @@ import (
 // LoadFromEnv populates tagged fields from the process environment.
 // Malformed numeric or boolean values produce errors (joined when multiple vars fail).
 func LoadFromEnv(cfg any) error {
+	return loadFromEnvWith(cfg, Getenv)
+}
+
+// loadFromEnvWith is [LoadFromEnv] with getenv in place of the process environment.
+func loadFromEnvWith(cfg any, getenv func(string) string) error {
 	v := reflect.ValueOf(cfg)
 	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
 		return nil
 	}
-	return loadFromEnvStruct(v.Elem())
+	return loadFromEnvStruct(v.Elem(), getenv)
 }
 
 // MustLoadFromEnv calls [LoadFromEnv] and panics if any env value is invalid (startup safety).
@@ -44,14 +49,14 @@ func Getenv(name string) string {
 	return ""
 }
 
-func loadFromEnvStruct(v reflect.Value) error {
+func loadFromEnvStruct(v reflect.Value, getenv func(string) string) error {
 	t := v.Type()
 	var errs []error
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		sf := t.Field(i)
 		if sf.Anonymous && field.Kind() == reflect.Struct {
-			if err := loadFromEnvStruct(field); err != nil {
+			if err := loadFromEnvStruct(field, getenv); err != nil {
 				errs = append(errs, err)
 			}
 			continue
@@ -63,7 +68,7 @@ func loadFromEnvStruct(v reflect.Value) error {
 		if tag == "" {
 			continue
 		}
-		envValue := Getenv(tag)
+		envValue := getenv(tag)
 		if envValue == "" {
 			continue
 		}

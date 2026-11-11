@@ -13,6 +13,7 @@ import (
 	"github.com/otfabric/go-dnp3/app"
 
 	"github.com/otfabric/dnp3ctl/internal/config"
+	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/types"
 )
 
@@ -24,6 +25,7 @@ var managementFunctions = map[string]app.FunctionCode{
 	"start-application":      app.FuncStartApplication,
 	"stop-application":       app.FuncStopApplication,
 	"save-configuration":     app.FuncSaveConfiguration,
+	"activate-config":        app.FuncActivateConfig,
 }
 
 // ManagementFunctions describes the values of --function of `client manage`.
@@ -34,6 +36,7 @@ func ManagementFunctions() map[string]string {
 		"start-application":      "START_APPL (17): start the applications",
 		"stop-application":       "STOP_APPL (18): stop the applications",
 		"save-configuration":     "SAVE_CONFIG (19): save the configuration",
+		"activate-config":        "ACTIVATE_CONFIG (31): activate the configurations of --config-name and --config-string",
 	}
 }
 
@@ -41,7 +44,7 @@ func ManagementFunctions() map[string]string {
 func ManagementFunction(name string) (app.FunctionCode, error) {
 	fc, ok := managementFunctions[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {
-		return 0, fmt.Errorf("invalid --function %q: use initialize-data, initialize-application, start-application, stop-application or save-configuration", name)
+		return 0, fmt.Errorf("invalid --function %q: use initialize-data, initialize-application, start-application, stop-application, save-configuration or activate-config", name)
 	}
 	return fc, nil
 }
@@ -57,26 +60,99 @@ func managementHeaders(fc app.FunctionCode) []app.Header {
 	}
 }
 
+// activateHeaders returns the objects of ACTIVATE_CONFIG (IEEE 1815-2012 clause 4.4.20):
+// a file specification (g70v8) for every name of --config-name and an octet string (g110)
+// for every value of --config-string.
+func activateHeaders(names, octets []string) ([]app.Header, error) {
+	var headers []app.Header
+	var specs []app.Value
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n == "" {
+			continue
+		}
+		if len(n) > math.MaxUint16 {
+			return nil, fmt.Errorf("--config-name of %d octets: the maximum is %d", len(n), math.MaxUint16)
+		}
+		specs = append(specs, app.FileSpecification{Name: n})
+	}
+	if len(specs) > 0 {
+		headers = append(headers, app.FreeFormat(app.G70V8, specs...))
+	}
+	if len(octets) > math.MaxUint16 {
+		return nil, fmt.Errorf("%d --config-string values: the maximum is %d", len(octets), math.MaxUint16)
+	}
+	var index uint32
+	for _, o := range octets {
+		n := len(o)
+		if n < 1 || n > math.MaxUint8 {
+			return nil, fmt.Errorf("--config-string %q: an octet string has 1-255 octets", o)
+		}
+		headers = append(headers, app.Ranged(app.GV(110, uint8(n)), index, app.OctetString{Data: []byte(o)}))
+		index++
+	}
+	return headers, nil
+}
+
+// managePlan validates cfg and returns its function and, for activate-config, its objects.
+func managePlan(cfg *config.ManageConfig) (app.FunctionCode, []app.Header, error) {
+	fc, err := ManagementFunction(cfg.Function)
+	if err != nil {
+		return 0, nil, err
+	}
+	if fc != app.FuncActivateConfig {
+		if len(cfg.ConfigNames) > 0 || len(cfg.ConfigStrings) > 0 {
+			return 0, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--config-name and --config-string apply to --function activate-config", nil)
+		}
+		return fc, managementHeaders(fc), nil
+	}
+	headers, err := activateHeaders(cfg.ConfigNames, cfg.ConfigStrings)
+	switch {
+	case err != nil:
+		return 0, nil, err
+	case len(headers) == 0:
+		return 0, nil, errs.InvalidInput(errs.CodeInvalidInput, "activate-config needs a configuration: set --config-name or --config-string", nil)
+	}
+	return fc, headers, nil
+}
+
 // CheckManage validates the configuration of `client manage`.
 func CheckManage(cfg *config.ManageConfig) error {
 	if err := Validate(&cfg.ConnConfig); err != nil {
 		return err
 	}
-	_, err := ManagementFunction(cfg.Function)
+	_, _, err := managePlan(cfg)
 	return err
 }
 
 // Manage sends a management function.
 func Manage(ctx context.Context, cfg *config.ManageConfig, trace io.Writer) (*types.ConfirmedResult, error) {
-	fc, err := ManagementFunction(cfg.Function)
+	fc, headers, err := managePlan(cfg)
 	if err != nil {
 		return nil, err
 	}
 	res := &types.ConfirmedResult{Request: strings.ToLower(strings.TrimSpace(cfg.Function)), Function: fc.String()}
 	return confirmed(ctx, &cfg.ConnConfig, trace, res, func(ctx context.Context, s *Session) error {
-		_, err := s.Request(ctx, fc, managementHeaders(fc)...)
+		if fc == app.FuncActivateConfig {
+			sts, err := s.ActivateConfig(ctx, headers...)
+			res.Activation = activationResults(sts)
+			return err
+		}
+		_, err := s.Request(ctx, fc, headers...)
 		return err
 	})
+}
+
+// activationResults converts the g91v1 objects of an ACTIVATE_CONFIG response.
+func activationResults(sts []app.ActivateConfigStatus) []types.ActivationStatus {
+	out := make([]types.ActivationStatus, 0, len(sts))
+	for _, st := range sts {
+		a := types.ActivationStatus{DelayMs: ms(st.Delay), Results: make([]types.ActivationResult, 0, len(st.Results))}
+		for _, r := range st.Results {
+			a.Results = append(a.Results, types.ActivationResult{Code: int(r.Code), Text: r.Text})
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // CheckClearRestart validates the configuration of `client clear-restart`.

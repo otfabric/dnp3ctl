@@ -26,6 +26,9 @@ NEED_TIME indication.
                     the round trip minus the outstation's processing delay: the procedure
                     for serial links
   --method write    WRITE g50v1 with --time ("now" or an RFC 3339 time), uncorrected
+  --method clear-need-time
+                    WRITE g80v1 index 4: clear NEED_TIME without setting the time, where
+                    timekeeping is not required (IEEE 1815-2012 clause 4.5.5)
 
 DNP3 time is UTC. THIS CHANGES THE OUTSTATION: the time stamps of its events follow its
 clock. The request is repeated with --retries, as it is safe to repeat.`,
@@ -38,6 +41,9 @@ clock. The request is repeated with --retries, as it is safe to repeat.`,
 
   # Set a given time, for a test
   dnp3ctl client time-sync --ip 192.168.1.20 --method write --time 2026-01-31T12:00:00Z
+
+  # Clear NEED_TIME only
+  dnp3ctl client time-sync --ip 192.168.1.20 --method clear-need-time
 `,
 	}
 	cfg := config.TimeSyncConfig{ConnConfig: connDefaults(), Method: dnp.TimeLAN, OutputFormat: text}
@@ -289,6 +295,11 @@ whether the outstation accepted it:
   start-application       START_APPL (17), for every application
   stop-application        STOP_APPL (18), for every application
   save-configuration      SAVE_CONFIG (19)
+  activate-config         ACTIVATE_CONFIG (31), for the configurations --config-name
+                          (files on the outstation, g70v8) and --config-string (octet
+                          strings, g110) name; the result lists the outstation's status
+                          of requested operation (g91v1) and when the configuration is
+                          in effect
 
 An outstation that does not implement a function refuses it with NO_FUNC_CODE_SUPPORT
 (exit code 6).
@@ -298,6 +309,7 @@ initializing data sets its values back. The request is sent once.`,
 		Example: `
   dnp3ctl client manage --ip 192.168.1.20 --function save-configuration
   dnp3ctl client manage --ip 192.168.1.20 --function stop-application --format json
+  dnp3ctl client manage --ip 192.168.1.20 --function activate-config --config-name /config/settings.xml
 `,
 	}
 	cfg := config.ManageConfig{ConnConfig: connDefaults(), OutputFormat: text}

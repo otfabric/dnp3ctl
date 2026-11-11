@@ -229,14 +229,33 @@ type ConfirmedResult struct {
 	Set       *int       `json:"set,omitempty"`
 	Attribute *Attribute `json:"attribute,omitempty"`
 	// Path is the file of delete-file.
-	Path  string  `json:"path,omitempty"`
-	RTTMs float64 `json:"rtt_ms"`
+	Path string `json:"path,omitempty"`
+	// Activation is the status of requested operation of every g91v1 object of an
+	// activate-config response.
+	Activation []ActivationStatus `json:"activation,omitempty"`
+	RTTMs      float64            `json:"rtt_ms"`
+}
+
+// ActivationStatus is one status of requested operation (g91v1) of an ACTIVATE_CONFIG
+// response: the time the outstation needs before the configuration is in effect, and its
+// status entries.
+type ActivationStatus struct {
+	DelayMs float64            `json:"delay_ms"`
+	Results []ActivationResult `json:"results"`
+}
+
+// ActivationResult is one status entry of a g91v1 object: code 0 is success.
+type ActivationResult struct {
+	Code int    `json:"code"`
+	Text string `json:"text,omitempty"`
 }
 
 func (r *ConfirmedResult) detail() string {
 	switch r.Request {
 	case "time-sync":
-		return r.Method + " " + r.Time
+		return strings.TrimSpace(r.Method + " " + r.Time)
+	case "activate-config":
+		return r.Function + activationText(r.Activation)
 	case "cold-restart", "warm-restart":
 		if r.DelayMs != nil {
 			return fmt.Sprintf("poll again after %.0f ms", *r.DelayMs)
@@ -274,6 +293,22 @@ func (r *ConfirmedResult) detail() string {
 		return r.Function
 	}
 	return ""
+}
+
+// activationText renders the statuses of an activate-config response: ", status 0 after
+// 1500 ms" for each entry.
+func activationText(sts []ActivationStatus) string {
+	var b strings.Builder
+	for _, st := range sts {
+		for _, r := range st.Results {
+			fmt.Fprintf(&b, ", status %d", r.Code)
+			if r.Text != "" {
+				fmt.Fprintf(&b, " %q", r.Text)
+			}
+		}
+		fmt.Fprintf(&b, ", in effect after %.0f ms", st.DelayMs)
+	}
+	return b.String()
 }
 
 func rangeSuffix(rng string) string {
