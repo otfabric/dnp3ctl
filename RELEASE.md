@@ -1,5 +1,20 @@
 # dnp3ctl Releases
 
+## v0.13.1
+
+**Date:** 2026-11-12
+**Previous release:** v0.13.0
+
+### Summary
+
+Built on go-serial v0.3.0 (from v0.2.1). No flag, output or exit code changes.
+
+### Changed
+
+- go-serial v0.3.0 checks serial parameters before narrowing them: a data-bits or stop-bits value out of range is an error instead of being truncated to a valid one, and an RS-485 RTS delay above 2^32-1 ms is refused instead of wrapping around. go-serial now requires Go 1.26, which dnp3ctl already did.
+
+---
+
 ## v0.13.0
 
 **Date:** 2026-11-12
