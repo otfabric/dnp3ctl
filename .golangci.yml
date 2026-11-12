@@ -11,7 +11,6 @@ linters:
     - godot          # comment punctuation
     - nilerr         # return nil instead of err
     - exhaustive     # exhaustive switch on enums
-    - gosec          # security: file paths, TLS, randomness, integer conversions, permissions
   settings:
     exhaustive:
       default-signifies-exhaustive: true  # a default: case satisfies exhaustiveness

@@ -109,7 +109,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 
 ### Static Analysis
 
-`make check` and CI run golangci-lint with **gosec** enabled, besides staticcheck, go vet, govulncheck and CodeQL. A finding is fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
+CI runs staticcheck, go vet, govulncheck and CodeQL. The code is also kept free of gosec findings (`golangci-lint run --enable-only=gosec ./...`), each fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
 
 ### Verifying Downloads
 

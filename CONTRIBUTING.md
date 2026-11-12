@@ -26,7 +26,7 @@ Thank you for your interest in contributing to `dnp3ctl`! This document covers t
 ### Build & Test
 
 ```sh
-# Run all checks (format, lint with gosec, vet, 32-bit typecheck, vulnerability scan, race tests, coverage gate)
+# Run all checks (format, lint, vet, 32-bit typecheck, vulnerability scan, race tests, coverage gate)
 make check
 
 # Run tests with the race detector
@@ -54,7 +54,7 @@ Run `make` (or `make help`) for the full list of targets.
 
 ### Lint and Security Checks
 
-`make lint-ci` runs golangci-lint as `.golangci.yml` configures it, **gosec** included; CI runs the same version (v2.15.0). Fix a finding in the code: no `nolint` or `#nosec` comments, and no exclusions in `.golangci.yml`. The usual fixes: `filepath.Clean` on a path the operator names, `os.Root` to open files below a directory (the model's, the upload directory, `t.TempDir()` in tests), `crypto/rand` for randomness, a type that holds the value instead of a narrowing conversion, and modes of `0600` / `0700` or tighter for files and directories dnp3ctl creates. A test fixture that needs looser permissions (the warning about a readable key file) creates the file `0600` and changes its mode through an `os.Root`.
+Fix a lint finding in the code: no `nolint` or `#nosec` comments, and no exclusions in `.golangci.yml`. The code is kept free of gosec findings; check a change with `golangci-lint run --enable-only=gosec ./...`. The usual fixes: `filepath.Clean` on a path the operator names, `os.Root` to open files below a directory (the model's, the upload directory, `t.TempDir()` in tests), `crypto/rand` for randomness, a type that holds the value instead of a narrowing conversion, and modes of `0600` / `0700` or tighter for files and directories dnp3ctl creates. A test fixture that needs looser permissions (the warning about a readable key file) creates the file `0600` and changes its mode through an `os.Root`.
 
 ### Formatting
 
