@@ -38,7 +38,7 @@ Plain DNP3 carries no encryption, and without Secure Authentication no authentic
 
 `dnp3ctl` supports DNP3 over TLS (IEEE 1815-2012 Annex B, IEC 62351-3): `tls://` URLs with `--tls-ca`, and `--tls-cert` / `--tls-key` for mutual authentication; the server takes `--tls-cert`, `--tls-key` and `--tls-client-ca`. TLS 1.2 is the minimum.
 
-- `--tls-insecure` turns off verification of the outstation's certificate. It is for test setups; do not use it against an outstation that matters
+- The outstation's certificate is always verified, against `--tls-ca` or the system roots; nothing turns that off. For a self-signed outstation, pass its certificate (or the CA that signed it) with `--tls-ca`. `--tls-insecure` and `DNP3CTL_TLS_INSECURE` were removed in v0.13.0: either one is now an error that names `--tls-ca`
 - Private keys are read from the files you name and are never written or printed. Keep them readable by you alone
 
 ### Secure Authentication v5

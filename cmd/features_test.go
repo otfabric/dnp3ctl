@@ -201,7 +201,7 @@ func TestDualEndPoint(t *testing.T) {
 			{"--listen", "127.0.0.1", "--ip", "127.0.0.1"},
 			{"--listen", "127.0.0.1:x"},
 			{"--listen", "127.0.0.1", "--tls"},
-			{"--listen", "127.0.0.1", "--tls-cert", model, "--tls-key", model, "--tls-insecure"},
+			{"--listen", "127.0.0.1", "--tls-cert", model, "--tls-key", model, "--tls-server-name", "rtu"},
 		} {
 			kind, code := run(t, append([]string{"client", "poll", "--format", "json"}, args...)...).want(t, 3).errorCode(t)
 			if kind != "invalid_input" {

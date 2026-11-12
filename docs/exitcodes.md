@@ -5,8 +5,8 @@
 | Code | Meaning |
 |------|---------|
 | 0 | Success (`ExitOK`) |
-| 2 | Usage (`KindUsage`): unknown command or flag, a missing required flag, a value a flag cannot hold |
-| 3 | Invalid input (`KindInvalidInput`): a flag value, combination of flags, environment variable, key file or outstation model that does not make sense. Nothing was sent |
+| 2 | Usage (`KindUsage`): unknown command or flag, a missing required flag, a value a flag cannot hold. A flag that was removed (`--tls-insecure`, since v0.13.0) is reported with what replaces it |
+| 3 | Invalid input (`KindInvalidInput`): a flag value, combination of flags, environment variable, key file or outstation model that does not make sense, or an environment variable that was removed (`DNP3CTL_TLS_INSECURE`, since v0.13.0). Nothing was sent |
 | 4 | Transport (`KindTransport`): the connection cannot be made (refused, unreachable, TLS failure, serial port that does not open, an outstation that does not connect to `--listen` within `--timeout`), is lost, or the server or `--listen` cannot listen |
 | 5 | Timeout (`KindTimeout`): the outstation did not answer a request, a link frame or a confirmation in time |
 | 6 | Refused or protocol error (`KindRefused`, `KindProtocol`): the outstation refused the request (IIN2 error bits, a control status other than `SUCCESS`, a refused file operation, a failed secure authentication), or violated the protocol |

@@ -335,7 +335,7 @@ Every `dnp3ctl client` command takes the outstation as a URL, as an address and 
 | `--ip host [--port n]` | TCP on port 20000 or `n`; TLS when a `--tls…` flag is given |
 | `--listen host[:port]` | Waits for the outstation to connect: the dual end point (IEEE 1815-2012 annex A.3), for outstations behind a firewall or on a dial-out link. Port 20000 or `--port` when `--listen` names none (`:20000` listens on every interface); TLS when a `--tls…` flag is given |
 
-**The outstation connects (dual end point).** With `--listen` dnp3ctl opens the port, waits up to `--timeout` (default 10 s) for the outstation to connect, and closes the port when the command ends; `client monitor` waits for the outstation again whenever the connection is lost. The result's `target` is the address the outstation connected from. Over TLS dnp3ctl is the TLS **server**: `--tls-cert` and `--tls-key` are its server certificate, and `--tls-ca` requires the outstation to present a certificate of that CA (`--tls-server-name` and `--tls-insecure` do not apply). An outstation that does not connect in time ends the command with exit code 4. See [SECURITY.md](SECURITY.md#the-outstation-connects-dual-end-point).
+**The outstation connects (dual end point).** With `--listen` dnp3ctl opens the port, waits up to `--timeout` (default 10 s) for the outstation to connect, and closes the port when the command ends; `client monitor` waits for the outstation again whenever the connection is lost. The result's `target` is the address the outstation connected from. Over TLS dnp3ctl is the TLS **server**: `--tls-cert` and `--tls-key` are its server certificate, and `--tls-ca` requires the outstation to present a certificate of that CA (`--tls-server-name` does not apply). An outstation that does not connect in time ends the command with exit code 4. See [SECURITY.md](SECURITY.md#the-outstation-connects-dual-end-point).
 
 ```console
 # Wait on port 20000 for the outstation, then run an integrity poll
@@ -363,11 +363,12 @@ dnp3ctl client monitor --listen 10.0.0.1:19999 --tls-cert scada.pem --tls-key sc
 | `--tls-ca` | PEM file with the CA certificates to verify the outstation with; the system roots by default |
 | `--tls-cert`, `--tls-key` | PEM files with the client certificate and its key, for an outstation that authenticates its masters |
 | `--tls-server-name` | The name to verify the outstation's certificate against, when it is not the host you connect to |
-| `--tls-insecure` | Do not verify the outstation's certificate. For test setups only |
 
 ```console
 dnp3ctl client poll --url tls://rtu.example.net --tls-ca ca.pem --tls-cert scada.pem --tls-key scada.key
 ```
+
+The outstation's certificate is always verified; there is no option to turn that off (`--tls-insecure` was removed in v0.13.0). For an outstation with a self-signed certificate, or one of a private CA, pass that certificate or CA with `--tls-ca`.
 
 **Secure Authentication v5.** An outstation that runs SAv5 challenges critical requests. Give dnp3ctl its **update key**, with which dnp3ctl negotiates the session keys (session key change), or, for an outstation without key change, a **pre-shared session key**. Keys are hex, in a file or in the environment; they are **never** accepted on the command line, where they would end up in the shell history and the process list. Give one kind of key, not both.
 
@@ -893,7 +894,6 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TLS_CA** | string | every client command: PEM file with the CA certificates to verify the outstation with (default: system roots); **server start**: With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots) | `--tls-ca` |  |
 | **DNP3CTL_TLS_CERT** | string | every client command: PEM file with the own certificate (client authentication); **server start**: PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master) | `--tls-cert` |  |
 | **DNP3CTL_TLS_CLIENT_CA** | string | **server start**: PEM file with the CA certificates masters must present a certificate of (mutual TLS) | `--tls-client-ca` |  |
-| **DNP3CTL_TLS_INSECURE** | bool | Do not verify the outstation certificate (testing only) | `--tls-insecure` |  |
 | **DNP3CTL_TLS_KEY** | string | every client command, **server start**: PEM file with the private key of --tls-cert | `--tls-key` |  |
 | **DNP3CTL_TLS_SERVER_NAME** | string | Name to verify the outstation certificate against (default: the host) | `--tls-server-name` |  |
 | **DNP3CTL_UDP** | bool | **server start**: Serve DNP3 over UDP instead of TCP (one master at a time) | `--udp` |  |

@@ -167,7 +167,7 @@ func TestTargets(t *testing.T) {
 	if got, err := c.ResolveTarget(); err != nil || got.Addr() != "rtu:20000" || got.TLS() {
 		t.Errorf("--ip without port: %v, %v", got, err)
 	}
-	c = ConnConfig{IP: "10.0.0.1", Port: 5000, TLSConfig: TLSConfig{Insecure: true}}
+	c = ConnConfig{IP: "10.0.0.1", Port: 5000, TLSConfig: TLSConfig{ServerName: "rtu"}}
 	if got, err := c.ResolveTarget(); err != nil || got.String() != "tls://10.0.0.1:5000" {
 		t.Errorf("--ip with a TLS flag: %v, %v", got, err)
 	}
