@@ -10,7 +10,6 @@ type TLSConfig struct {
 	Cert       string `env:"DNP3CTL_TLS_CERT" desc:"PEM file with the own certificate (client authentication)" flag:"tls-cert"`
 	Key        string `env:"DNP3CTL_TLS_KEY" desc:"PEM file with the private key of --tls-cert" flag:"tls-key"`
 	ServerName string `env:"DNP3CTL_TLS_SERVER_NAME" desc:"Name to verify the outstation certificate against (default: the host)" flag:"tls-server-name"`
-	Insecure   bool   `env:"DNP3CTL_TLS_INSECURE" desc:"Do not verify the outstation certificate (testing only)" flag:"tls-insecure"`
 }
 
 // SerialConfig holds the line settings of a serial port (serial:// URLs, or --serial on a
@@ -353,5 +352,5 @@ type GenerateConfigConfig struct {
 // WantsTLS reports whether a TLS flag is set.
 func (c *ConnConfig) WantsTLS() bool {
 	t := c.TLSConfig
-	return t.TLS || t.CACert != "" || t.Cert != "" || t.Key != "" || t.ServerName != "" || t.Insecure
+	return t.TLS || t.CACert != "" || t.Cert != "" || t.Key != "" || t.ServerName != ""
 }

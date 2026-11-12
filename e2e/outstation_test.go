@@ -137,7 +137,7 @@ func TestFileGetFromASpawnedOutstation(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("file get: exit code %d\n%s", code, out)
 	}
-	data, err := os.ReadFile(local)
+	data, err := os.ReadFile(filepath.Clean(local))
 	if err != nil || string(data) != "hello from the e2e outstation\n" {
 		t.Errorf("downloaded %q, %v", data, err)
 	}

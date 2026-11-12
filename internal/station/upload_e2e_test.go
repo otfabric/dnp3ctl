@@ -31,8 +31,9 @@ func TestUploadPastLimitOverDNP3(t *testing.T) {
 	if err := c.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	data := bytes.Repeat([]byte{0x5A}, 3000)
-	if _, err := c.WriteFile(ctx, "/big.bin", bytes.NewReader(data), uint32(len(data)), client.FileOptions{MaxBlockSize: 256}); err == nil {
+	const bigSize, smallSize = 3000, 900
+	data := bytes.Repeat([]byte{0x5A}, bigSize)
+	if _, err := c.WriteFile(ctx, "/big.bin", bytes.NewReader(data), bigSize, client.FileOptions{MaxBlockSize: 256}); err == nil {
 		t.Fatal("a write past the limit succeeded")
 	} else {
 		t.Logf("write: %v", err)
@@ -41,8 +42,8 @@ func TestUploadPastLimitOverDNP3(t *testing.T) {
 		t.Error("the outstation kept part of a refused file")
 	}
 	// A file within the limit is still taken.
-	small := bytes.Repeat([]byte{0xA5}, 900)
-	if _, err := c.WriteFile(ctx, "/small.bin", bytes.NewReader(small), uint32(len(small)), client.FileOptions{MaxBlockSize: 256}); err != nil {
+	small := bytes.Repeat([]byte{0xA5}, smallSize)
+	if _, err := c.WriteFile(ctx, "/small.bin", bytes.NewReader(small), smallSize, client.FileOptions{MaxBlockSize: 256}); err != nil {
 		t.Fatalf("a write within the limit: %v", err)
 	}
 	var got bytes.Buffer

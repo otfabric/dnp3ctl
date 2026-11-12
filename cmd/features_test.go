@@ -104,9 +104,13 @@ func TestAggressiveModeAndSecurityStatistics(t *testing.T) {
 	if len(res.Measurements) != int(secauth.NumStatistics) {
 		t.Fatalf("%d security statistics, want %d", len(res.Measurements), secauth.NumStatistics)
 	}
+	names := map[uint32]string{}
+	for s := range secauth.NumStatistics {
+		names[uint32(s)] = s.String()
+	}
 	stats := map[string]float64{}
 	for _, m := range res.Measurements {
-		if m.Type != "security-statistic" || m.Statistic != secauth.Statistic(m.Index).String() {
+		if name, ok := names[m.Index]; m.Type != "security-statistic" || !ok || m.Statistic != name {
 			t.Errorf("statistic %+v", m)
 		}
 		stats[m.Statistic], _ = m.Value.(float64)
@@ -201,7 +205,7 @@ func TestDualEndPoint(t *testing.T) {
 			{"--listen", "127.0.0.1", "--ip", "127.0.0.1"},
 			{"--listen", "127.0.0.1:x"},
 			{"--listen", "127.0.0.1", "--tls"},
-			{"--listen", "127.0.0.1", "--tls-cert", model, "--tls-key", model, "--tls-insecure"},
+			{"--listen", "127.0.0.1", "--tls-cert", model, "--tls-key", model, "--tls-server-name", "rtu"},
 		} {
 			kind, code := run(t, append([]string{"client", "poll", "--format", "json"}, args...)...).want(t, 3).errorCode(t)
 			if kind != "invalid_input" {

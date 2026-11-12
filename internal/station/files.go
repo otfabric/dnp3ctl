@@ -177,7 +177,7 @@ func (s *fileServer) Delete(_ context.Context, name string, _ uint32) app.FileSt
 	}
 	delete(s.files, clean)
 	if s.dir != "" {
-		_ = os.Remove(filepath.Join(s.dir, filepath.FromSlash(strings.TrimPrefix(clean, "/"))))
+		s.removeOnDisk(clean)
 	}
 	s.event(types.ServerEvent{Event: "file", Detail: "deleted " + clean})
 	return app.FileSuccess
@@ -214,14 +214,43 @@ func (s *fileServer) sent(name string, n int, abort bool) {
 	s.event(types.ServerEvent{Event: "file", Detail: fmt.Sprintf("sent %s (%d octets)", name, n)})
 }
 
+// storeOnDisk writes the file name (a clean absolute name, see cleanName) below the upload
+// directory, through an [os.Root] of that directory: a name the master sends cannot reach
+// outside it, through ".." or a symbolic link.
+func (s *fileServer) storeOnDisk(name string, data []byte) error {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(s.dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	rel := filepath.FromSlash(strings.TrimPrefix(name, "/"))
+	if dir := filepath.Dir(rel); dir != "." {
+		if err := root.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+	}
+	return root.WriteFile(rel, data, 0o600)
+}
+
+// removeOnDisk removes the file name (a clean absolute name) below the upload directory,
+// through an [os.Root] of that directory like storeOnDisk. A file that is not there is no
+// error: the file may have been kept in memory only.
+func (s *fileServer) removeOnDisk(name string) {
+	root, err := os.OpenRoot(s.dir)
+	if err != nil {
+		return
+	}
+	defer func() { _ = root.Close() }()
+	_ = root.Remove(filepath.FromSlash(strings.TrimPrefix(name, "/")))
+}
+
 // store keeps a written file, on disk too when the model names an upload directory.
 func (s *fileServer) store(name string, data []byte, perm app.Permissions, created app.Timestamp) error {
 	if s.dir != "" {
-		p := filepath.Join(s.dir, filepath.FromSlash(strings.TrimPrefix(name, "/")))
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			return err
-		}
-		if err := os.WriteFile(p, data, 0o600); err != nil {
+		if err := s.storeOnDisk(name, data); err != nil {
 			return err
 		}
 	}

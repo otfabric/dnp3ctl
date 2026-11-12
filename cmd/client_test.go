@@ -410,7 +410,7 @@ func TestFiles(t *testing.T) {
 		out := filepath.Join(dir, "big.dat")
 		var res types.FileTransferResult
 		cli(t, st, "file", "get", "--path", "/records/big.dat", "--output", out, "--format", "json").want(t, 0).decode(t, &res)
-		data, err := os.ReadFile(out)
+		data, err := os.ReadFile(filepath.Clean(out))
 		if err != nil || len(data) != 5000 || res.Length != 5000 || res.Direction != "download" || res.Local != out || len(res.SHA256) != 64 {
 			t.Fatalf("get: %+v, %d octets, %v", res, len(data), err)
 		}
@@ -621,7 +621,7 @@ func TestTargetsAndErrors(t *testing.T) {
 			{"--url", "http://x"},
 			{"--url", "tcp://x", "--ip", "y"},
 			{"--url", "serial://"},
-			{"--url", "tcp://127.0.0.1", "--tls-insecure"},
+			{"--url", "tcp://127.0.0.1", "--tls-server-name", "rtu"},
 			{"--url", "tcp://127.0.0.1", "--udp-local-port", "20000"},
 			{"--ip", "127.0.0.1", "--master", "10"},
 			{"--ip", "127.0.0.1", "--outstation", "65530"},
@@ -667,7 +667,23 @@ func TestTLS(t *testing.T) {
 
 	run(t, append([]string{"client", "poll"}, tlsFlags...)...).want(t, 0).has(t, url, "12 objects")
 	run(t, append([]string{"client", "poll", "--ip", "127.0.0.1", "--port", strconv.Itoa(int(st.Port))}, tlsFlags[2:]...)...).want(t, 0).has(t, url)
-	run(t, "client", "poll", "--url", url, "--tls-insecure", "--tls-cert", certs.ClientCert, "--tls-key", certs.ClientKey).want(t, 0)
+	// --tls-insecure is gone: the flag and its environment variable fail and name --tls-ca.
+	for _, flag := range []string{"--tls-insecure", "--tls-insecure=false"} {
+		run(t, "client", "poll", "--url", url, flag, "--tls-cert", certs.ClientCert, "--tls-key", certs.ClientKey).want(t, 2).
+			errHas(t, "--tls-insecure was removed in v0.13.0", "always verifies", "--tls-ca")
+		kind, code := run(t, "client", "poll", "--url", url, flag, "--format", "json").want(t, 2).errorCode(t)
+		if kind != "usage" || code != "invalid_input" {
+			t.Errorf("%s: %s/%s", flag, kind, code)
+		}
+	}
+	t.Run("DNP3CTL_TLS_INSECURE", func(t *testing.T) {
+		for _, v := range []string{"1", "false"} {
+			t.Setenv("DNP3CTL_TLS_INSECURE", v)
+			run(t, append([]string{"client", "poll"}, tlsFlags...)...).want(t, 3).
+				errHas(t, "DNP3CTL_TLS_INSECURE was removed in v0.13.0", "unset it", "--tls-ca")
+			run(t, "version").want(t, 3).errHas(t, "DNP3CTL_TLS_INSECURE was removed")
+		}
+	})
 	kind, code := run(t, "client", "poll", "--url", url, "--format", "json", "--tls-cert", certs.ClientCert, "--tls-key", certs.ClientKey).want(t, 4).errorCode(t)
 	if kind != "transport" || code != "transport_tls_failed" {
 		t.Errorf("unknown CA: %s/%s", kind, code)

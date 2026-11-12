@@ -131,7 +131,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				inv.SetOutputFormat(f)
 			}
 		}
-		return runner.RenderFatal(inv, usageError(unknownSubcommand(cmd, args, err)), stdout, stderr, trace)
+		return runner.RenderFatal(inv, usageError(removedFlag(unknownSubcommand(cmd, args, err))), stdout, stderr, trace)
 	}
 	if inv.SuccessExitSet {
 		return inv.SuccessExitCode
@@ -139,9 +139,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return errs.ExitOK
 }
 
-// buildRoot is NewRootCmd with a malformed environment variable reported as invalid input
-// instead of a panic: the configuration of every command is read when the tree is built.
+// buildRoot is NewRootCmd with a malformed or removed environment variable reported as
+// invalid input instead of a panic: the configuration of every command is read when the
+// tree is built.
 func buildRoot() (root *cobra.Command, err error) {
+	if err := config.CheckRemovedEnv(config.Getenv); err != nil {
+		return nil, errs.InvalidInput(errs.CodeInvalidInput, err.Error(), err)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			msg := strings.TrimPrefix(fmt.Sprint(r), "dnp3ctl: ")
@@ -209,6 +213,15 @@ func takesValue(cmd *cobra.Command, arg string) bool {
 		}
 	}
 	return false
+}
+
+// removedFlag returns, for an unknown flag that dnp3ctl once had, the error that names what
+// replaces it; any other error is returned as it is.
+func removedFlag(err error) error {
+	if r := config.RemovedFlag(err); r != nil {
+		return errs.New(errs.KindUsage, errs.CodeInvalidInput, r.Error(), err)
+	}
+	return err
 }
 
 // usageError classifies what Cobra itself rejects (an unknown command or flag, a missing

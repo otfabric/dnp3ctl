@@ -4,12 +4,13 @@ package station
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"math/rand/v2"
 	"net"
 	"net/netip"
 	"strings"
@@ -718,6 +719,15 @@ func counterValue(s *SimSpec, cur uint32, n int, step float64) uint32 {
 	return uint32(v)
 }
 
+// randomFraction returns a uniformly distributed number in [0, 1) from crypto/rand: the 53
+// bits a float64 holds exactly. crypto/rand.Read does not fail (it ends the program if the
+// system's random source ever does).
+func randomFraction() float64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return float64(binary.BigEndian.Uint64(b[:])>>11) / (1 << 53)
+}
+
 // simValue returns the next value of a numeric simulation.
 func simValue(s *SimSpec, cur float64, n int, step float64) float64 {
 	switch strings.ToLower(s.Mode) {
@@ -735,7 +745,7 @@ func simValue(s *SimSpec, cur float64, n int, step float64) float64 {
 		mid, amp := (s.Max+s.Min)/2, (s.Max-s.Min)/2
 		return mid + amp*math.Sin(2*math.Pi*float64(n)/period)
 	case "random":
-		return s.Min + rand.Float64()*(s.Max-s.Min)
+		return s.Min + randomFraction()*(s.Max-s.Min)
 	default: // count
 		return cur + step
 	}

@@ -404,7 +404,6 @@ func TestListenOptions(t *testing.T) {
 	for _, c := range []config.TLSConfig{
 		{TLS: true},
 		{Cert: junk},
-		{Cert: junk, Key: junk, Insecure: true},
 		{Cert: junk, Key: junk, ServerName: "rtu"},
 		{Cert: junk, Key: junk},
 	} {

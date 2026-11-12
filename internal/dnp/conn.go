@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -123,7 +124,7 @@ func readKey(file, env, name, fileFlag, envVar string) ([]byte, error) {
 		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("%s and %s are mutually exclusive", fileFlag, envVar), nil)
 	case file != "":
 		checkSecretFile(file, name)
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(filepath.Clean(file))
 		if err != nil {
 			return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("reading the %s: %v", name, err), err)
 		}
@@ -180,13 +181,10 @@ func SecureAuthUser(cfg config.AuthConfig) (*secauth.User, error) {
 	return &user, nil
 }
 
-// ClientTLS builds the TLS configuration of a client connection.
+// ClientTLS builds the TLS configuration of a client connection. The outstation's
+// certificate is always verified: against --tls-ca, or the system roots without it.
 func ClientTLS(cfg config.TLSConfig) (*tls.Config, error) {
-	out := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		ServerName:         cfg.ServerName,
-		InsecureSkipVerify: cfg.Insecure,
-	}
+	out := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: cfg.ServerName}
 	if cfg.CACert != "" {
 		pool, err := CertPool(cfg.CACert)
 		if err != nil {
@@ -232,15 +230,15 @@ func ListenTLS(cfg config.TLSConfig) (*tls.Config, error) {
 	switch {
 	case cfg.Cert == "" || cfg.Key == "":
 		return nil, fmt.Errorf("TLS with --listen needs --tls-cert and --tls-key: the master is the TLS server of the connection")
-	case cfg.ServerName != "" || cfg.Insecure:
-		return nil, fmt.Errorf("--tls-server-name and --tls-insecure do not apply to --listen; --tls-ca makes the outstation present a certificate of that CA")
+	case cfg.ServerName != "":
+		return nil, fmt.Errorf("--tls-server-name does not apply to --listen; --tls-ca makes the outstation present a certificate of that CA")
 	}
 	return ServerTLS(cfg.Cert, cfg.Key, cfg.CACert)
 }
 
 // CertPool reads PEM certificates from path.
 func CertPool(path string) (*x509.CertPool, error) {
-	pem, err := os.ReadFile(path)
+	pem, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading CA certificates: %w", err)
 	}

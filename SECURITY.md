@@ -38,7 +38,7 @@ Plain DNP3 carries no encryption, and without Secure Authentication no authentic
 
 `dnp3ctl` supports DNP3 over TLS (IEEE 1815-2012 Annex B, IEC 62351-3): `tls://` URLs with `--tls-ca`, and `--tls-cert` / `--tls-key` for mutual authentication; the server takes `--tls-cert`, `--tls-key` and `--tls-client-ca`. TLS 1.2 is the minimum.
 
-- `--tls-insecure` turns off verification of the outstation's certificate. It is for test setups; do not use it against an outstation that matters
+- The outstation's certificate is always verified, against `--tls-ca` or the system roots; nothing turns that off. For a self-signed outstation, pass its certificate (or the CA that signed it) with `--tls-ca`. `--tls-insecure` and `DNP3CTL_TLS_INSECURE` were removed in v0.13.0: either one is now an error that names `--tls-ca`
 - Private keys are read from the files you name and are never written or printed. Keep them readable by you alone
 
 ### Secure Authentication v5
@@ -96,7 +96,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 
 - `server start` listens on **all network interfaces** and accepts **any client** by default. Use `--listen` to bind to one address, `--allow` to restrict the clients, `--master-ips` to restrict the masters over TCP, TLS and UDP alike, `masters` in the model to restrict the link addresses answered, or a host firewall
 - The simulated outstation executes every control it is sent on its simulated points, and takes and deletes files when the model accepts uploads. With `uploads.dir` written files are stored below that directory under their (cleaned) name; a name cannot escape the directory
-- A model may reference files on disk (`files[].path`): the server serves whatever those paths name to any client it accepts
+- A model may reference files on disk (`files[].path`): the server serves whatever those paths name to any client it accepts. A relative `path` is read through an `os.Root` of the model file's directory and cannot leave it, through `..` or a symbolic link; an absolute `path` is read as written. Uploads to `uploads.dir` are written and removed through an `os.Root` of that directory in the same way
 
 ### Output
 
@@ -106,6 +106,10 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 ### Privileges
 
 `dnp3ctl` needs no elevated privileges. `server start` on port 20000 works as a normal user; a serial port needs membership of the group that owns it (for example `dialout` on Linux), not root.
+
+### Static Analysis
+
+CI runs staticcheck, go vet, govulncheck and CodeQL. Gosec and Opengrep do not run in public CI (otfabric/engineering ADR-0011, rule GO-014): a maintainer scans dnp3ctl on their own machine with `cd ../engineering && make sast REPO=dnp3ctl` in a checkout of [otfabric/engineering](https://github.com/otfabric/engineering) beside this one before each release. Gosec findings are fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. A finding that is accepted instead is recorded in a private triage repository, never in this one; dnp3ctl has none. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
 
 ### Verifying Downloads
 

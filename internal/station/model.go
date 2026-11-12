@@ -292,6 +292,7 @@ var commandStatuses = func() map[string]app.CommandStatus {
 
 // Load reads a model from a YAML or JSON file and validates it.
 func Load(file string) (*Model, error) {
+	file = filepath.Clean(file)
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
@@ -714,7 +715,7 @@ func cleanName(name string) (string, error) {
 func (m *Model) fileContent(f FileSpec) ([]byte, error) {
 	switch {
 	case f.Path != "":
-		return os.ReadFile(m.resolve(f.Path))
+		return m.readFile(f.Path)
 	case f.Content != "":
 		return []byte(f.Content), nil
 	}
@@ -723,6 +724,27 @@ func (m *Model) fileContent(f FileSpec) ([]byte, error) {
 		data[i] = byte('A' + i%26)
 	}
 	return data, nil
+}
+
+// readFile reads the file p a model names. A relative p is read through an [os.Root] of
+// the directory of the model file (the working directory for a model that was not loaded
+// from a file), so that it cannot leave that directory, through ".." or a symbolic link; an
+// absolute p is read as it is.
+func (m *Model) readFile(p string) ([]byte, error) {
+	p = filepath.Clean(p)
+	if filepath.IsAbs(p) {
+		return os.ReadFile(p)
+	}
+	dir := m.dir
+	if dir == "" {
+		dir = "."
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(p)
 }
 
 func numeric(t server.PointType) bool {
