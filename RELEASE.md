@@ -7,7 +7,7 @@
 
 ### Summary
 
-Every gosec finding is fixed in the code. TLS always verifies the outstation: `--tls-insecure` and `DNP3CTL_TLS_INSECURE` are removed, and setting either is an error that names `--tls-ca`. Files of the outstation model and its upload directory are opened through `os.Root`. Exit codes and the JSON output are unchanged.
+Every gosec finding is fixed in the code; gosec runs on a maintainer's machine before each release, not in public CI. TLS always verifies the outstation: `--tls-insecure` and `DNP3CTL_TLS_INSECURE` are removed, and setting either is an error that names `--tls-ca`. Files of the outstation model and its upload directory are opened through `os.Root`. Exit codes and the JSON output are unchanged.
 
 ### Upgrade notes
 
@@ -24,7 +24,8 @@ Every gosec finding is fixed in the code. TLS always verifies the outstation: `-
 
 ### Quality
 
-- gosec: `golangci-lint run --enable-only=gosec ./...` reports 0 issues, from 18 before (G304 ×10, G703 ×2, G115 ×3, G302 ×3, G402 ×1, G404 ×1; standalone `gosec -tests ./...` counted 23 with the test variants of the packages). No `nolint` or `#nosec` comment and no exclusion in the configuration; the unused `examples` formatter exclusion is gone.
+- gosec: every finding is fixed in the code. Standalone `gosec -tests ./...` (v2.30.0, the version otfabric/engineering pins) reports 0 issues, from 23 before (18 distinct: G304 ×10, G703 ×2, G115 ×3, G302 ×3, G402 ×1, G404 ×1; the rest are the test variants of the packages). There is no `nolint` or `#nosec` comment and no exclusion in the configuration; the unused `examples` formatter exclusion is gone.
+- Security scanning follows otfabric/engineering ADR-0011: gosec does not run in public lint or CI (rule GO-014). A maintainer runs `make sast REPO=dnp3ctl` from otfabric/engineering before each release. Accepted findings are kept in a private triage repository; dnp3ctl has none.
 - Tests: the removed flag and environment variable, as text and as JSON, and the environment variable failing every command; model files and uploads that try to leave their directory (`..`, symbolic links); `crypto/rand` fractions. Tests use correct integer types instead of narrowing conversions; the key file fixtures are created `0600` and loosened through `os.Root`, as the warning they check is about loose permissions.
 - SECURITY.md and CONTRIBUTING.md describe the static analysis and how to fix a finding.
 
