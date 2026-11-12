@@ -410,7 +410,7 @@ func TestFiles(t *testing.T) {
 		out := filepath.Join(dir, "big.dat")
 		var res types.FileTransferResult
 		cli(t, st, "file", "get", "--path", "/records/big.dat", "--output", out, "--format", "json").want(t, 0).decode(t, &res)
-		data, err := os.ReadFile(out)
+		data, err := os.ReadFile(filepath.Clean(out))
 		if err != nil || len(data) != 5000 || res.Length != 5000 || res.Direction != "download" || res.Local != out || len(res.SHA256) != 64 {
 			t.Fatalf("get: %+v, %d octets, %v", res, len(data), err)
 		}

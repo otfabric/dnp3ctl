@@ -55,8 +55,10 @@ func garbagePeer(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	noise := make([]byte, 512)
+	b := byte(11)
 	for i := range noise {
-		noise[i] = byte(i*37 + 11)
+		noise[i] = b // 11 + 37i modulo 256
+		b += 37
 	}
 	noise[0], noise[1] = 0x05, 0x64 // a start of a link frame, and then no valid header
 	var wg sync.WaitGroup

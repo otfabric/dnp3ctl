@@ -215,6 +215,24 @@ func TestConnectionOptionCombinations(t *testing.T) {
 	}
 }
 
+// looseFile writes the secret file name below dir, owner-only as every file is created, and
+// then gives it mode: the permissions that others may read it with are what the test is
+// about.
+func looseFile(t *testing.T, dir, name string, data []byte, mode os.FileMode) {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.WriteFile(name, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Chmod(name, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSecretFileWarning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permissions")
@@ -223,8 +241,7 @@ func TestSecretFileWarning(t *testing.T) {
 	restore := SetWarningOutput(&out)
 	dir := t.TempDir()
 	loose := filepath.Join(dir, "loose")
-	_ = os.WriteFile(loose, []byte("00112233445566778899aabbccddeeff"), 0o600)
-	_ = os.Chmod(loose, 0o604)
+	looseFile(t, dir, "loose", []byte("00112233445566778899aabbccddeeff"), 0o604)
 	for range 2 {
 		if _, err := readKey(loose, "", "secure authentication key", "--sa-key-file", "DNP3CTL_SA_KEY"); err != nil {
 			t.Fatal(err)

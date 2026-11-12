@@ -8,6 +8,7 @@ package cmd
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ func TestDocsyncManifest(t *testing.T) {
 	if out == "" {
 		t.Skip("DOCSYNC_MANIFEST is not set")
 	}
+	out = filepath.Clean(out)
 	root := NewRootCmd() // docsync:root
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
@@ -75,7 +77,13 @@ func TestDocsyncManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(out, data, 0o600); err != nil {
+	// The manifest goes into the directory DOCSYNC_MANIFEST names, under its base name.
+	dst, err := os.OpenRoot(filepath.Dir(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dst.Close() }()
+	if err := dst.WriteFile(filepath.Base(out), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -289,6 +289,25 @@ func TestServerUDPFixed(t *testing.T) {
 	stop()
 }
 
+// looseFile writes the secret file name below dir, owner-only as every file is created, and
+// then gives it mode: the permissions that others may read it with are what the test is
+// about. It returns the path of the file.
+func looseFile(t *testing.T, dir, name string, data []byte, mode os.FileMode) string {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.WriteFile(name, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Chmod(name, mode); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, name)
+}
+
 // A key or password file that others can read is used, with a warning on stderr.
 func TestSecretFileWarning(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -297,9 +316,7 @@ func TestSecretFileWarning(t *testing.T) {
 	update := bytes.Repeat([]byte{0x5a}, 16)
 	st := stationtest.Start(t, stationtest.Model, func(o *station.Options) { o.Auth = &secauth.User{Number: 1, UpdateKey: update} })
 	dir := t.TempDir()
-	loose := filepath.Join(dir, "loose.key")
-	_ = os.WriteFile(loose, []byte(hex.EncodeToString(update)), 0o600)
-	_ = os.Chmod(loose, 0o644)
+	loose := looseFile(t, dir, "loose.key", []byte(hex.EncodeToString(update)), 0o644)
 	r := cli(t, st, "poll", "--sa-update-key-file", loose).want(t, 0)
 	if strings.Count(r.stderr, "warning: the secure authentication update key file "+loose+" is accessible to other users (mode 0644)") != 1 {
 		t.Errorf("no single warning about a readable key file:\n%s", r.stderr)
@@ -310,9 +327,7 @@ func TestSecretFileWarning(t *testing.T) {
 		t.Errorf("a warning about a key file of its owner only:\n%s", r.stderr)
 	}
 
-	pw := filepath.Join(dir, "password")
-	_ = os.WriteFile(pw, []byte("secret\n"), 0o600)
-	_ = os.Chmod(pw, 0o640)
+	pw := looseFile(t, dir, "password", []byte("secret\n"), 0o640)
 	cli(t, st, "file", "ls", "--file-user", "operator", "--file-password-file", pw, "--sa-update-key-file", tight).want(t, 6).
 		errHas(t, "warning: the file password file "+pw+" is accessible to other users (mode 0640)")
 }

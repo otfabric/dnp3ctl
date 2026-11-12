@@ -401,7 +401,7 @@ uploads: {accept: true, dir: up}
 			return nil, st
 		}
 		b, _ := io.ReadAll(f)
-		if f.Size() != uint32(len(b)) {
+		if int64(f.Size()) != int64(len(b)) {
 			t.Errorf("%s: size %d, read %d", name, f.Size(), len(b))
 		}
 		_ = f.Close(false)
@@ -448,7 +448,7 @@ uploads: {accept: true, dir: up}
 	if b, _ := read("/up/new.txt"); string(b) != "abcdef" {
 		t.Errorf("appended: %q", b)
 	}
-	if disk, err := os.ReadFile(filepath.Join(dir, "up", "up", "new.txt")); err != nil || string(disk) != "abcdef" {
+	if disk, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "up", "up", "new.txt"))); err != nil || string(disk) != "abcdef" {
 		t.Errorf("on disk: %q, %v", disk, err)
 	}
 	ab, _ := fs.Open(ctx, server.FileRequest{Name: "/aborted", Mode: app.FileModeWrite})

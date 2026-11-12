@@ -20,10 +20,6 @@ formatters:
     - gofmt          # formatting
     - goimports      # import grouping / formatting
 
-  exclusions:
-    paths:
-      - examples
-
 issues:
   # Bump the default per-linter issue limit (default is 50)
   max-issues-per-linter: 0

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -181,7 +182,7 @@ readable by its owner only (mode 0600).`,
 		if cfg.Force {
 			flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		}
-		f, err := os.OpenFile(cfg.Output, flags, 0o600)
+		f, err := os.OpenFile(filepath.Clean(cfg.Output), flags, 0o600)
 		if err != nil {
 			if errors.Is(err, os.ErrExist) {
 				return errs.InvalidInput(errs.CodeOutputFileCreateFailed, fmt.Sprintf("%s exists: pass --force to overwrite it", cfg.Output), err)

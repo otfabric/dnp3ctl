@@ -104,9 +104,13 @@ func TestAggressiveModeAndSecurityStatistics(t *testing.T) {
 	if len(res.Measurements) != int(secauth.NumStatistics) {
 		t.Fatalf("%d security statistics, want %d", len(res.Measurements), secauth.NumStatistics)
 	}
+	names := map[uint32]string{}
+	for s := range secauth.NumStatistics {
+		names[uint32(s)] = s.String()
+	}
 	stats := map[string]float64{}
 	for _, m := range res.Measurements {
-		if m.Type != "security-statistic" || m.Statistic != secauth.Statistic(m.Index).String() {
+		if name, ok := names[m.Index]; m.Type != "security-statistic" || !ok || m.Statistic != name {
 			t.Errorf("statistic %+v", m)
 		}
 		stats[m.Statistic], _ = m.Value.(float64)

@@ -96,7 +96,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 
 - `server start` listens on **all network interfaces** and accepts **any client** by default. Use `--listen` to bind to one address, `--allow` to restrict the clients, `--master-ips` to restrict the masters over TCP, TLS and UDP alike, `masters` in the model to restrict the link addresses answered, or a host firewall
 - The simulated outstation executes every control it is sent on its simulated points, and takes and deletes files when the model accepts uploads. With `uploads.dir` written files are stored below that directory under their (cleaned) name; a name cannot escape the directory
-- A model may reference files on disk (`files[].path`): the server serves whatever those paths name to any client it accepts
+- A model may reference files on disk (`files[].path`): the server serves whatever those paths name to any client it accepts. A relative `path` is read through an `os.Root` of the model file's directory and cannot leave it, through `..` or a symbolic link; an absolute `path` is read as written. Uploads to `uploads.dir` are written and removed through an `os.Root` of that directory in the same way
 
 ### Output
 
@@ -106,6 +106,10 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 ### Privileges
 
 `dnp3ctl` needs no elevated privileges. `server start` on port 20000 works as a normal user; a serial port needs membership of the group that owns it (for example `dialout` on Linux), not root.
+
+### Static Analysis
+
+CI runs staticcheck, go vet, govulncheck and CodeQL. The code is also kept free of gosec findings (`golangci-lint run --enable-only=gosec ./...`), each fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
 
 ### Verifying Downloads
 

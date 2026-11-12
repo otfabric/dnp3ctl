@@ -7,20 +7,26 @@
 
 ### Summary
 
-TLS always verifies the outstation: `--tls-insecure` and `DNP3CTL_TLS_INSECURE` are removed, and setting either is an error that names `--tls-ca`. Exit codes and the JSON output are unchanged.
+Every gosec finding is fixed in the code. TLS always verifies the outstation: `--tls-insecure` and `DNP3CTL_TLS_INSECURE` are removed, and setting either is an error that names `--tls-ca`. Files of the outstation model and its upload directory are opened through `os.Root`. Exit codes and the JSON output are unchanged.
 
 ### Upgrade notes
 
 - **`--tls-insecure` is removed** (breaking). TLS always verifies the outstation's certificate, against `--tls-ca` or the system roots. For an outstation with a self-signed certificate, or a certificate of a private CA, pass that certificate or CA: `dnp3ctl client poll --url tls://rtu:19999 --tls-ca rtu.pem`. A command line that still has the flag fails with exit code 2 (usage, `invalid_input`) and `error: --tls-insecure was removed in v0.13.0; TLS always verifies the outstation's certificate: pass --tls-ca with the CA certificate (or the self-signed certificate) of the outstation`.
 - **`DNP3CTL_TLS_INSECURE` is removed** (breaking). Set to any value, it fails every command with exit code 3 (invalid input, `invalid_input`) and `error: DNP3CTL_TLS_INSECURE was removed in v0.13.0: unset it; TLS always verifies …`, like a malformed environment variable. Unset it. dnp3ctl has no configuration file for the client, so there is no key to remove; the outstation model never had a TLS setting.
+- A relative `files[].path` of an outstation model is read through an `os.Root` of the model file's directory: `../shared/x.bin`, or a symbolic link that leads out of that directory, is now an error of the model. Use an absolute path for a file elsewhere.
+- Uploads to `uploads.dir` are written and removed through an `os.Root` of that directory: a symbolic link inside it that leads out of it is no longer followed, and the write is refused.
 
 ### Changed
 
+- The `random` simulation mode draws from `crypto/rand` instead of `math/rand/v2`.
+- File names the operator gives (`--output`, `--input`, `--config`, key, password and certificate files) are cleaned with `filepath.Clean` before they are opened.
 - `--tls-server-name` with `--listen` reports `--tls-server-name does not apply to --listen`.
 
 ### Quality
 
-- Tests: the removed flag and environment variable, as text and as JSON, and the environment variable failing every command.
+- gosec: `golangci-lint run --enable-only=gosec ./...` reports 0 issues, from 18 before (G304 ×10, G703 ×2, G115 ×3, G302 ×3, G402 ×1, G404 ×1; standalone `gosec -tests ./...` counted 23 with the test variants of the packages). No `nolint` or `#nosec` comment and no exclusion in the configuration; the unused `examples` formatter exclusion is gone.
+- Tests: the removed flag and environment variable, as text and as JSON, and the environment variable failing every command; model files and uploads that try to leave their directory (`..`, symbolic links); `crypto/rand` fractions. Tests use correct integer types instead of narrowing conversions; the key file fixtures are created `0600` and loosened through `os.Root`, as the warning they check is about loose permissions.
+- SECURITY.md and CONTRIBUTING.md describe the static analysis and how to fix a finding.
 
 ---
 

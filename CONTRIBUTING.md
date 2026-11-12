@@ -52,6 +52,10 @@ Run `make` (or `make help`) for the full list of targets.
 - Classify every failure: an error that reaches the user is an `*errs.Error` with a kind and a stable code (`internal/errs`, `dnp.WrapError`). A new code is part of the contract: add it to [docs/exitcodes.md](docs/exitcodes.md)
 - Secrets (keys, passwords) are read from files or the environment, never from flags
 
+### Lint and Security Checks
+
+Fix a lint finding in the code: no `nolint` or `#nosec` comments, and no exclusions in `.golangci.yml`. The code is kept free of gosec findings; check a change with `golangci-lint run --enable-only=gosec ./...`. The usual fixes: `filepath.Clean` on a path the operator names, `os.Root` to open files below a directory (the model's, the upload directory, `t.TempDir()` in tests), `crypto/rand` for randomness, a type that holds the value instead of a narrowing conversion, and modes of `0600` / `0700` or tighter for files and directories dnp3ctl creates. A test fixture that needs looser permissions (the warning about a readable key file) creates the file `0600` and changes its mode through an `os.Root`.
+
 ### Formatting
 
 `make fmt` formats with the `gofmt` of the Go version in `go.mod`, which is the version CI uses, not necessarily the one you have installed. `make fmt-check` (part of `make check`) fails if either that `gofmt` or your local one would change a file: `gofmt` output differs slightly between Go releases, and a file the two disagree on fails CI. If they disagree, restructure the code (for example, move trailing comments onto their own lines) rather than picking a side.
