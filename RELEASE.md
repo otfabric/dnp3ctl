@@ -1,5 +1,54 @@
 # dnp3ctl Releases
 
+## v0.12.0
+
+**Date:** 2026-11-12
+**Previous release:** v0.11.0
+
+### Summary
+
+Built on go-dnp3 v1.12.0. Since v1.11.0 its master runs the startup and restart procedures of IEEE 1815-2012 by itself. The one-shot commands keep doing only what they are asked; `client monitor` runs those procedures. Every go-dnp3 feature that a command can use is exposed: new flags for the master and the simulated outstation, `client manage --function activate-config`, `client time-sync --method clear-need-time` and `client file put --created`. Exit codes are unchanged; the JSON output gains one field.
+
+### Changed
+
+- **go-dnp3 v1.12.0** (from v1.9.1; v1.11.0 brought the changes below, v1.12.0 the dialers and redial jitter). Read its release notes; for dnp3ctl:
+  - **One-shot commands send their request and nothing else.** go-dnp3 runs an integrity poll at connect (clause 5.1.1.2) and answers NEED_TIME (4.5.5) by default from v1.11; every `client` command but `monitor` turns both off, as well as the clear of IIN1.7 and the poll after a restart, as before.
+  - **`client monitor`** runs the master procedures: with unsolicited classes it disables them and runs an integrity poll before it enables them (5.1.1.2 Rule 1); after the outstation reports a restart, go-dnp3 runs the restart procedure (5.1.1.1.2) and enables the classes again, which the monitor did itself before; it answers NEED_TIME (`--time-sync`, default `auto`). stderr now says `monitor: the outstation reported a restart` instead of `monitor: the outstation restarted: unsolicited responses enabled again`.
+  - **The simulated outstation** (`server start`) follows go-dnp3 v1.11: it refuses a second connection from a connected master that answers a link status request (13.2.3.3) instead of replacing the first; a Secure Authentication challenge waits 2 s for its reply (was 10 s); session keys expire after 30 minutes or 2000 messages without a change; security statistics carry Association ID 0 and have the thresholds of Table 7-6; SAVE_CONFIG is answered with a delay object (g52v2), ACTIVATE_CONFIG with g91v1; frozen counter and frozen analog input events are raised at every freeze. Aggressive mode MAC follows Table A-9: it does not interoperate with dnp3ctl releases before this one.
+- UDP connections are opened with go-dnp3's `client.UDPWithDialer`, binding `--udp-local-port` and `--source-address`.
+- `--sa-reply-timeout` defaults to 2000 ms and `--sa-statistics-threshold` to the thresholds of Table 7-6, go-dnp3's new defaults; `--sa-statistics-threshold` above 65535 is refused.
+- The model's `refused_functions` takes `activate-config`.
+- The simulated outstation gives an uploaded file the time of creation the master sends.
+- `gopkg.in/yaml.v3` is replaced by its maintained successor `go.yaml.in/yaml/v3` v3.0.6; spf13/pflag v1.1.0.
+
+### Added
+
+- **Client, every command:** `--source-address` (connect from this local IP address over TCP, TLS and UDP; `client.WithDialer`, `client.UDPWithDialer`), `--retry-jitter` (randomized retry backoff, `Retry.Jitter`), `--max-fragment` and `--max-request-fragment` (`WithMaxFragment`, `WithMaxRequestFragment`), `--no-solicited-confirm` (`WithSolicitedConfirm`), `--sa-challenge-macs` (`WithChallengeMACs`), `--sa-key-change-count` (`WithKeyChangeCount`).
+- **`client monitor`:** `--time-sync auto|lan|non-lan|clear-need-time|none` (`WithTimeSync`), `--reconnect-jitter` (`Reconnect.Jitter`), `--auto-event-poll` (`WithAutoEventPoll`), `--queue-limit` (`WithQueueLimit`), `--no-unsolicited-confirm` (`WithUnsolicitedConfirm`), `--dual-endpoint` and `--dual-endpoint-allow` (`WithDualEndpoint`); with secure authentication the master's own security statistics (`Client.SecurityStatistics`) go to stderr at the end.
+- **`client manage --function activate-config`** with `--config-name` (g70v8) and `--config-string` (g110): ACTIVATE_CONFIG (`Client.ActivateConfig`); the result lists the outstation's status of requested operation.
+- **`client time-sync --method clear-need-time`** (`Client.ClearNeedTime`).
+- **`client file put --created`** (`FileOptions.Created`).
+- **`server start`:** `--redial-min-delay`, `--redial-max-delay` and `--redial-jitter` (the backoff of `--dial`, `server.Redial`), `--dial-source-address` (`server.WithDialer`), `--master-ips` (`WithMasterIPs`), `--udp-fixed` (`ServeUDPFixed`), `--max-controls` (`WithMaxControls`), `--max-tx-fragment` and `--max-rx-fragment` (`WithMaxFragment`), `--deadband-integer-only` (`WithDeadbandIntegerOnly`), `--file-timeout` and `--file-timeout-class` (`WithFileTimeout`), `--sa-threshold`, `--sa-no-aggressive`, `--sa-expected-key-change-interval`, `--sa-expected-key-change-count` and `--sa-max-key-status-requests` (the new `SecureAuth` fields).
+- **JSON output:** `activation` in the result of `client manage --function activate-config` (`delay_ms`, `results` with `code` and `text`); `method` of `client time-sync` may be `"clear-need-time"`, which has no `time`.
+- **Key and password files:** on Unix, a warning on stderr when a key file (`--sa-key-file`, `--sa-update-key-file`) or `--file-password-file` can be accessed by its group or others. The file is used all the same.
+- README: which go-dnp3 features are not exposed and why (dialers other than a source address bind, `ServeByMasterIP`, a key change interval of 0).
+
+### Upgrade notes
+
+- A script that waited for `unsolicited responses enabled again` on the stderr of `client monitor` should look for `the outstation reported a restart`.
+- A master that relied on the simulated outstation replacing a connection of the same master address with a new one now has the new connection refused while the first one answers: give the second client another `--master`.
+- Secure Authentication aggressive mode between this release and an older dnp3ctl or go-dnp3 fails: upgrade both ends.
+
+### Quality
+
+- Fuzz targets `FuzzParseObjects`, `FuzzParseClasses`, `FuzzParseObjectFilter`, `FuzzParseTime`, `FuzzReadKey`, `FuzzParseIndexListAndValues`, `FuzzParseBroadcast`, `FuzzParsePortsAndAddresses`, `FuzzParseAttributeVariation`, `FuzzParsePrefixes`, `FuzzParseChallengeMACs`, `FuzzParseAllow`, `FuzzParseThresholds` and `FuzzLoadFromEnv` (`config.LoadFromEnv` now reads through a lookup function, so the environment can be fuzzed); each ran 30 s without a finding.
+- Chaos tests: an outstation that drips its responses one octet at a time (within and beyond the response timeout), and one that stops in the middle of a response without closing the connection.
+- End-to-end tests of the built binary against an outstation it serves itself (`server start`): read, operate, file get, and the indications a one-shot command leaves alone.
+- Command tests of every new flag against the simulated outstation, including the time synchronization modes of the monitor and the one-shot command that sends nothing but its request.
+- CI: otfabric/.github reusable workflows v3.6.0, golangci-lint v2.15.0 as `make check` runs it, engineering policy 1.5; a CodeQL workflow (Go) on pushes and pull requests to `main` and weekly.
+
+---
+
 ## v0.11.0
 
 **Date:** 2026-11-08

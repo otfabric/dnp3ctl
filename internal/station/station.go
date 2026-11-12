@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,7 +54,35 @@ type Options struct {
 	AuthReplyTimeout    time.Duration
 	StatisticsClass     uint8
 	StatisticsThreshold uint32
+	// Thresholds, NoAggressive, ExpectedKeyChangeInterval, ExpectedKeyChangeCount and
+	// MaxKeyStatusRequests are the further Secure Authentication settings of
+	// server.SecureAuth; zero selects go-dnp3's defaults.
+	Thresholds                map[secauth.Statistic]uint16
+	NoAggressive              bool
+	ExpectedKeyChangeInterval time.Duration
+	ExpectedKeyChangeCount    uint32
+	MaxKeyStatusRequests      int
+	// MasterIPs limits the masters to these IP prefixes (server.WithMasterIPs).
+	MasterIPs []netip.Prefix
+	// MaxControls bounds the controls of one request (0 = 16).
+	MaxControls int
+	// MaxTxFragment and MaxRxFragment are the largest response sent and request
+	// reassembled (0 = 2048).
+	MaxTxFragment, MaxRxFragment int
+	// DeadbandIntegerOnly reports deadbands in g34v1 and g34v2 only.
+	DeadbandIntegerOnly bool
+	// FileTimeout closes a file no request names for this long (0 = 5 minutes), with a
+	// HANDLE_EXPIRED event of FileTimeoutClass (0 = 1).
+	FileTimeout      time.Duration
+	FileTimeoutClass uint8
+	// Redial is the backoff of DialAndServe between connection attempts.
+	Redial server.Redial
+	// DialSource, when valid, is the local address DialAndServe connects from.
+	DialSource netip.Addr
 }
+
+// defaultFragment is go-dnp3's largest fragment when WithMaxFragment does not set it.
+const defaultFragment = 2048
 
 // Station is a simulated outstation serving a model.
 type Station struct {
@@ -185,10 +214,46 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 		opts = append(opts, server.WithSecureAuthentication(server.SecureAuth{
 			User: *st.opts.Auth, ReplyTimeout: st.opts.AuthReplyTimeout,
 			StatisticsClass: server.Class(st.opts.StatisticsClass), StatisticsThreshold: st.opts.StatisticsThreshold,
+			Thresholds: st.opts.Thresholds, NoAggressiveMode: st.opts.NoAggressive,
+			ExpectedKeyChangeInterval: st.opts.ExpectedKeyChangeInterval, ExpectedKeyChangeCount: st.opts.ExpectedKeyChangeCount,
+			MaxKeyStatusRequests: st.opts.MaxKeyStatusRequests,
 		}))
+	}
+	if len(st.opts.MasterIPs) > 0 {
+		opts = append(opts, server.WithMasterIPs(st.opts.MasterIPs...))
+	}
+	if st.opts.MaxControls != 0 {
+		opts = append(opts, server.WithMaxControls(st.opts.MaxControls))
+	}
+	if st.opts.MaxTxFragment != 0 || st.opts.MaxRxFragment != 0 {
+		tx, rx := st.opts.MaxTxFragment, st.opts.MaxRxFragment
+		if tx == 0 {
+			tx = defaultFragment
+		}
+		if rx == 0 {
+			rx = defaultFragment
+		}
+		opts = append(opts, server.WithMaxFragment(tx, rx))
+	}
+	if st.opts.DeadbandIntegerOnly {
+		opts = append(opts, server.WithDeadbandIntegerOnly(true))
+	}
+	if st.opts.FileTimeout != 0 || st.opts.FileTimeoutClass != 0 {
+		d := st.opts.FileTimeout
+		if d == 0 {
+			d = server.DefaultFileTimeout
+		}
+		class := server.Class(st.opts.FileTimeoutClass & 0x3) // validated: 0-3
+		if class == 0 {
+			class = 1
+		}
+		opts = append(opts, server.WithFileTimeout(d, class))
 	}
 	if st.opts.Logger != nil {
 		opts = append(opts, server.WithLogger(st.opts.Logger))
+	}
+	if st.opts.DialSource.IsValid() {
+		opts = append(opts, server.WithDialer(dnp.SourceDialer(st.opts.DialSource)))
 	}
 	return opts, nil
 }
@@ -268,6 +333,12 @@ func (st *Station) ServeUDP(pc net.PacketConn) error {
 // unsolicited responses reach it before it has sent anything.
 func (st *Station) ServeUDPTo(pc net.PacketConn, peer net.Addr) error {
 	return st.srv.ServeUDPTo(st.watchUDP(pc, peer), peer)
+}
+
+// ServeUDPFixed serves DNP3 over UDP on pc with every response sent to peer, a fixed port
+// of the master (IEEE 1815-2012 Table 13-1, case 1), until Close.
+func (st *Station) ServeUDPFixed(pc net.PacketConn, peer net.Addr) error {
+	return st.srv.ServeUDPFixed(st.watchUDP(pc, peer), peer)
 }
 
 // watchUDP wraps the socket so that the event log can name the master, peer when known.
@@ -359,7 +430,7 @@ func (st *Station) remoteText(a net.Addr) string {
 // DialAndServe connects to the master at addr, with TLS when the options have it, serves
 // the connection and connects again whenever it ends (the dual end point), until Close.
 func (st *Station) DialAndServe(ctx context.Context, addr string) error {
-	return st.srv.DialAndServe(ctx, addr, server.Redial{})
+	return st.srv.DialAndServe(ctx, addr, st.opts.Redial)
 }
 
 // ServeConn serves one stream, a serial port for example, until it ends or Close.

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -303,7 +304,7 @@ func TestOptionsAndSecureAuth(t *testing.T) {
 	c := base()
 	c.Outstation = uint16(link.SelfAddress)
 	c.ResponseTimeout, c.Retries, c.Debug = 100, 2, true
-	if _, opts, _, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 7 {
+	if _, opts, _, err := options(c, &bytes.Buffer{}); err != nil || len(opts) < 6 {
 		t.Errorf("options: %d, %v", len(opts), err)
 	}
 
@@ -341,7 +342,7 @@ func TestOptionsAndSecureAuth(t *testing.T) {
 	if _, err := SerialSettings("/dev/x", config.SerialConfig{Parity: "odd", DataBits: 9}); err == nil {
 		t.Error("9 data bits were accepted")
 	}
-	if _, _, err := UDPOpener("256.0.0.1:20000", 1)(context.Background()); err == nil {
+	if _, _, err := UDPOpener("256.0.0.1:20000", netip.Addr{}, 1)(context.Background()); err == nil {
 		t.Error("UDPOpener dialed an address that does not exist")
 	}
 	if Timeout(0) != DefaultTimeout || Timeout(5) != 5*time.Millisecond {

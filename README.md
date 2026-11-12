@@ -330,6 +330,7 @@ Every `dnp3ctl client` command takes the outstation as a URL, as an address and 
 | `--url tcp://host[:port]` | DNP3 over TCP; port 20000 when omitted |
 | `--url tls://host[:port]` | DNP3 over TLS (IEEE 1815-2012 Annex B, IEC 62351-3); port 19999 when omitted |
 | `--url udp://host[:port]` | DNP3 over UDP; port 20000 when omitted. dnp3ctl sends from any free port unless `--udp-local-port` names one, for outstations that answer only a configured master endpoint (often port 20000) |
+| `--source-address ip` | Connect from this local IP address, over `tcp://`, `tls://` and `udp://` (with `--udp-local-port`, from that port of it), for a host with several interfaces or an outstation that accepts known master addresses only. It also applies to the connections `client monitor --dual-endpoint` makes |
 | `--url serial:///dev/ttyUSB0` | A serial line (`serial://COM3` on Windows), with `--baud` (default 9600), `--data-bits` (8), `--parity` (`none`, `even`, `odd`) and `--stop-bits` (1) |
 | `--ip host [--port n]` | TCP on port 20000 or `n`; TLS when a `--tls…` flag is given |
 | `--listen host[:port]` | Waits for the outstation to connect: the dual end point (IEEE 1815-2012 annex A.3), for outstations behind a firewall or on a dial-out link. Port 20000 or `--port` when `--listen` names none (`:20000` listens on every interface); TLS when a `--tls…` flag is given |
@@ -346,7 +347,11 @@ dnp3ctl client monitor --listen 10.0.0.1:19999 --tls-cert scada.pem --tls-key sc
 
 **Link addresses.** `--outstation` is the link address of the outstation (default 10) and `--master` the one of dnp3ctl (default 1). Both must match what the outstation is configured with: an outstation does not answer frames for another address, and many answer only the masters they know. A request that times out (exit code 5) against an outstation that accepts the connection is most often a wrong `--outstation`; `dnp3ctl discover --subnets <host> --outstations 1,2,3,4,10` finds the right one.
 
-**Timeouts and retries.** `--timeout` bounds connecting and each request, in milliseconds (default 10000); `--response-timeout` the wait for each fragment of a response (default 5000). `--retries n` repeats a request that timed out or lost its connection up to `n` times, with backoff, but only for requests that are safe to repeat: reads, polls, time synchronization, unsolicited control, assign class and file reads. Controls, freezes, restarts and writes are never repeated.
+**Timeouts and retries.** `--timeout` bounds connecting and each request, in milliseconds (default 10000); `--response-timeout` the wait for each fragment of a response (default 5000). `--retries n` repeats a request that timed out or lost its connection up to `n` times, with backoff, but only for requests that are safe to repeat: reads, polls, time synchronization, unsolicited control, assign class and file reads. Controls, freezes, restarts and writes are never repeated. `--retry-jitter p` draws each pause from the last p percent below the doubling one (0-100; 0, the default, waits exactly), so that masters that failed together do not retry together.
+
+**One-shot commands do only what they are asked.** go-dnp3, from v1.11, runs an integrity poll when a master connects (IEEE 1815-2012 clause 5.1.1.2), answers NEED_TIME by synchronizing the time (4.5.5) and runs the restart procedure when an outstation reports one. Every `dnp3ctl client` command but `monitor` turns this off: it sends its request and nothing else, leaves NEED_TIME and DEVICE_RESTART as the outstation reports them, and takes no events with a poll of its own. `client time-sync` and `client clear-restart` clear the indications when you ask. `client monitor` is a long-running master and keeps the procedures (see [Monitor events](#monitor-events)).
+
+**Fragment sizes and confirmations.** `--max-fragment` is the largest response fragment dnp3ctl reassembles (default 2048; 249 to 2047 are below what IEEE 1815-2012 clause 4.3 Rule 3 requires of a master, for peers known to send less), `--max-request-fragment` the largest request it sends (at least 249; by default not limited): a request that does not fit is refused before it is sent (exit code 3), and file uploads size their blocks to fit. `--no-solicited-confirm` leaves responses that ask for a confirmation unconfirmed, a diagnostic: the outstation then keeps the events it sent and sends no further fragment of a response, which ends in a timeout.
 
 **Link layer.** `--link-confirmed` sends user data as CONFIRMED_USER_DATA (unconfirmed is the default, as IEEE 1815-2012 recommends on TCP); `--link-timeout` and `--link-retries` govern the link layer answers; `--keep-alive` the idle time after which REQUEST_LINK_STATUS is sent (default 60 s).
 
@@ -376,6 +381,8 @@ dnp3ctl client poll --url tls://rtu.example.net --tls-ca ca.pem --tls-cert scada
 | `--sa-user` | User number (default 1) |
 | `--sa-mac` | `hmac-sha256-16` (default), `hmac-sha256-8`, `hmac-sha1-10` or `hmac-sha1-8` |
 | `--sa-aggressive` | Aggressive mode: once the outstation has challenged one request, send critical requests with their MAC, without waiting for a challenge (in `client operate --mode sbo`, the OPERATE after the SELECT). Needs a key |
+| `--sa-challenge-macs` | The MAC algorithms an outstation's challenge may ask for, comma-separated: `hmac-sha256-16`, `hmac-sha256-8`, `hmac-sha1-10`, `hmac-sha1-8`, `hmac-sha1-4`. By default every one but the obsolete `hmac-sha1-4`, and over TCP and UDP not the 8-octet ones either, which IEEE 1815-2012 clause 7.6.1.1 allows on serial links only. A challenge for another algorithm fails the request (exit code 6). The reply uses the algorithm the challenge names; `--sa-mac` is the one of the session key change. Needs a key |
+| `--sa-key-change-count` | Change the session keys after this many authentication messages (default 1000, clause 7.6.1.4.4), as well as every `--sa-key-change-interval`; with an update key only |
 
 ```console
 dnp3ctl client operate --ip 192.168.1.20 --type crob --index 0 --op latch-on --sa-update-key-file /etc/dnp3/outstation10.update.key
@@ -449,9 +456,23 @@ dnp3ctl client monitor --ip 192.168.1.20 --unsolicited none --poll-interval 5
 2026-10-20T09:15:19.102Z  unsol  g32v7   analog-input             0  11.03           [ONLINE]  @ 2026-10-20T09:15:19.100Z
 ```
 
-The monitor enables unsolicited responses for classes 1-3 (`--unsolicited`) after connecting, after every reconnect and after the outstation reports a restart (which makes it forget them), clears the outstation's restart indication, and reconnects when the connection is lost unless `--no-reconnect` is set.
+The monitor is a long-running master, and runs the procedures of one (go-dnp3 v1.11 and later), unlike the one-shot commands:
 
-An outstation takes a second connection from the same master link address for that master reconnecting, and drops the first. To run other commands while a monitor is connected, give them another `--master` (the outstation must answer it).
+- **At connect** and after every reconnect it enables unsolicited responses for classes 1-3 (`--unsolicited`). With classes to enable, IEEE 1815-2012 clause 5.1.1.2 Rule 1 has it disable them first and run an integrity poll before it enables them; with `--unsolicited none`, the integrity poll runs with `--integrity` only.
+- **When the outstation reports a restart** (which makes it forget the enabled classes) it runs the restart procedure of clause 5.1.1.1.2: it clears the restart indication, synchronizes the time when asked, polls (with `--integrity`) and enables the classes again; stderr says `monitor: the outstation reported a restart`.
+- **When the outstation asks for the time** (NEED_TIME, clause 4.5.5) it answers by itself. `--time-sync` chooses how: `auto` (the default: the LAN procedure over TCP, TLS and UDP, the non-LAN one over serial, and non-LAN for an outstation that refuses LAN), `lan`, `non-lan`, `clear-need-time` (clear the indication without setting the time) or `none` (leave it set).
+- It reconnects when the connection is lost unless `--no-reconnect` is set; `--reconnect-jitter p` draws each delay from the last p percent below the doubling one, so that masters that lost their connections together do not reconnect together.
+
+| Flag | Meaning |
+|---|---|
+| `--auto-event-poll` | Poll the event classes the outstation reports events for (IIN1.1-1.3) |
+| `--queue-limit` | Requests that may wait for their turn: polls and the automatic tasks (default 64) |
+| `--no-unsolicited-confirm` | Leave unsolicited responses unconfirmed, a diagnostic: the outstation repeats them, and may answer no request until its first one is confirmed |
+| `--dual-endpoint`, `--dual-endpoint-allow` | With a `tcp://` outstation: also take the connections it establishes, on this address (`host:port` or `:port`), while connecting to it as well (the TCP dual end point of clause 13.2.3.1.3; one connection at a time, the master's own has priority). `--dual-endpoint-allow` takes them only from these addresses or CIDR prefixes. Not with `--listen`, `udp://` or `serial://` |
+
+With secure authentication the monitor prints the master's own security statistics (IEEE 1815-2012 Table 7-6) that are not zero to stderr when it ends after having connected: `monitor: security statistics of the master: total messages sent 15, …, session key changes 1`.
+
+An outstation that follows IEEE 1815-2012 clause 13.2.3.3, as go-dnp3's does from v1.11, refuses a second connection from the master link address of a connected master that still answers, and replaces only a connection that is broken. To run other commands while a monitor is connected, give them another `--master` (the outstation must answer it).
 
 #### Operate an output
 
@@ -497,6 +518,9 @@ dnp3ctl client time-sync --ip 192.168.1.20
 dnp3ctl client time-sync --url serial:///dev/ttyUSB0 --baud 19200 --method non-lan
 dnp3ctl client time-sync --ip 192.168.1.20 --method write --time 2026-01-31T12:00:00Z
 
+# Clear NEED_TIME only, where the outstation's time does not matter
+dnp3ctl client time-sync --ip 192.168.1.20 --method clear-need-time
+
 # Restart the DNP3 application, or the whole outstation
 dnp3ctl client restart --ip 192.168.1.20 --type warm
 dnp3ctl client restart --ip 192.168.1.20 --type cold
@@ -536,6 +560,10 @@ A broadcast cannot be combined with Secure Authentication, and dnp3ctl refuses t
 # Save the configuration, or stop the outstation's applications
 dnp3ctl client manage --ip 192.168.1.20 --function save-configuration
 dnp3ctl client manage --ip 192.168.1.20 --function stop-application
+
+# Activate a configuration file on the outstation, or one named by an octet string (ACTIVATE_CONFIG)
+dnp3ctl client manage --ip 192.168.1.20 --function activate-config --config-name /config/settings.xml
+dnp3ctl client manage --ip 192.168.1.20 --function activate-config --config-string profile-2
 
 # Clear DEVICE_RESTART after a restart (the one-shot commands leave it set)
 dnp3ctl client clear-restart --ip 192.168.1.20
@@ -587,7 +615,7 @@ dnp3ctl client file rm --ip 192.168.1.20 --path /config/old.xml
 DNP3CTL_FILE_PASSWORD=… dnp3ctl client file ls --ip 192.168.1.20 --file-user engineer
 ```
 
-`file ls` lists `/` without `--path`. `file get` writes to the base name of `--path` in the current directory, or to `--output` (`-` for stdout), and does not overwrite an existing file without `--force`; a new file is readable by its owner only (mode 0600). `file put --permissions` sets the permissions of the new file (octal `644` or `rw-r--r--`, the default). `--block-size` limits the blocks asked for or sent (by default the outstation chooses), and `--file-password-file` reads the password of `--file-user` from a file.
+`file ls` lists `/` without `--path`. `file get` writes to the base name of `--path` in the current directory, or to `--output` (`-` for stdout), and does not overwrite an existing file without `--force`; a new file is readable by its owner only (mode 0600). `file put --permissions` sets the permissions of the new file (octal `644` or `rw-r--r--`, the default), and `--created` its time of creation (an RFC 3339 time; by default the time of the request). `--block-size` limits the blocks asked for or sent (by default the outstation chooses), and `--file-password-file` reads the password of `--file-user` from a file.
 
 #### Find outstations
 
@@ -694,6 +722,8 @@ Every event is written to stdout as it happens:
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served. Repeat it (or separate files with commas) to serve several outstations, each at the link address of its model |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
 | `--dial` | Connect to the master instead of listening, at `tcp://host[:port]` or `tls://host[:port]` (the dual end point), and connect again whenever the connection ends, after 1 s and up to 1 min between attempts. The event log starts with `dialing` |
+| `--redial-min-delay`, `--redial-max-delay`, `--redial-jitter` | With `--dial`: the delay before the first new attempt (milliseconds, default 1000), doubling up to `--redial-max-delay` (default 60000); `--redial-jitter p` draws each delay from the last p percent below the doubling one (0-100), so that outstations that lost their connections together, after a master restart for example, do not reconnect together |
+| `--dial-source-address` | With `--dial`: connect to the master from this local IP address |
 | `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time. The event log says `connected` when the first datagram arrives, naming its sender as `remote`; a socket no master sent to logs neither `connected` nor `disconnected` |
 | `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything, and `connected` names it at once; without it they start once a master has sent a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
@@ -702,7 +732,17 @@ Every event is written to stdout as it happens:
 | `--tls-ca` | With a `tls://` `--dial`: verify the master's certificate against this CA (the system roots by default); `--tls-cert` and `--tls-key` are then the certificate presented to the master, and optional |
 | `--allow` | Only accept clients from these addresses or CIDR prefixes (TCP and TLS) |
 | `--max-sessions` | Maximum number of simultaneous connections (default 16) |
-| `--sa-reply-timeout`, `--sa-statistics-class`, `--sa-statistics-threshold` | With secure authentication: how long a challenge waits for its reply (default 10000 ms), and the class (default 1) and threshold (default 10 increments) of security statistic events |
+| `--sa-reply-timeout`, `--sa-statistics-class`, `--sa-statistics-threshold` | With secure authentication: how long a challenge waits for its reply (default 2000 ms, IEEE 1815-2012 clause 7.6.1.4.1), and the class (default 1) and threshold of security statistic events: the increments between two events of every statistic, 1-65535 (by default each statistic's own of Table 7-6) |
+| `--sa-threshold` | With secure authentication: the event threshold of single statistics, `index=threshold` (index 0-17 of Table 7-6, threshold 1-65535), comma-separated; they also step the maxima the outstation acts on, such as Max Error Messages Sent |
+| `--sa-no-aggressive` | With secure authentication: refuse aggressive mode requests (error 4) |
+| `--sa-expected-key-change-interval`, `--sa-expected-key-change-count` | With secure authentication: session keys expire after this many seconds (default 1800) or authentication messages (default 2000) without a session key change (clause 7.6.1.4.5); not a pre-shared session key |
+| `--sa-max-key-status-requests` | With secure authentication: key status requests within the expected key change interval past which the outstation logs an error, 2-255 (default 5, clause 7.6.1.4.6); it answers them all the same |
+| `--master-ips` | Answer only masters from these IP addresses or CIDR prefixes, over TCP, TLS and UDP (IEEE 1815-2012 clauses 13.2.3.2.2 d, 13.2.3.1.4 a): a TCP connection from another address is closed, a datagram ignored. Unlike `--allow`, it applies to UDP and to `--dial` as well, and the refusal is not in the event log |
+| `--udp-fixed` | With `--udp-peer`: send every response to that address and port, and take datagrams from its IP address only: the fixed master port of Table 13-1, case 1 |
+| `--max-controls` | Controls one request may carry (default 16); the others are answered TOO_MANY_OBJS |
+| `--max-tx-fragment`, `--max-rx-fragment` | The largest response fragment the outstation sends and the largest request it reassembles, at least 249 (default 2048) |
+| `--deadband-integer-only` | Report analog input deadbands in g34v1 and g34v2 only, rounded, for masters without floating point (A.18.3.2.3); a read of g34v3 is answered IIN2.1. Masters can still write any variation |
+| `--file-timeout`, `--file-timeout-class` | Close an open file no request names for this many seconds, 1-3600 (default 300), and report it with a g70v6 HANDLE_EXPIRED event of this class (default 1; clause 4.4.17.1.1) |
 | `--sa-update-key-file`, `--sa-key-file`, `--sa-user`, `--sa-mac` | Require Secure Authentication v5, with session key change by this update key, or with this pre-shared session key (or `DNP3CTL_SA_UPDATE_KEY`, `DNP3CTL_SA_KEY`) |
 | `--link-confirmed`, `--link-timeout`, `--link-retries`, `--keep-alive` | As for the client |
 | `--duration` | Stop after this many seconds, for use in test pipelines |
@@ -732,6 +772,8 @@ dnp3ctl client read --object g30v5
 
 | Variable | Type | Description | Flag | Default |
 |----------|------|-------------|------|---------|
+| **DNP3CTL_ACTIVATE_FILE** | strings | **client manage**: With activate-config: configurations to activate, as names of files on the outstation (file specifications, g70v8) | `--config-name` |  |
+| **DNP3CTL_ACTIVATE_STRING** | strings | **client manage**: With activate-config: configurations to activate, as octet strings (g110), 1-255 octets each | `--config-string` |  |
 | **DNP3CTL_ALLOW** | strings | **server start**: Only accept TCP and TLS clients from these addresses or CIDR prefixes (default: any) | `--allow` |  |
 | **DNP3CTL_APPEND** | bool | **client file put**: Add the content to the end of the file instead of replacing it (OPEN_FILE in APPEND mode) | `--append` |  |
 | **DNP3CTL_ASSIGN_CLASS** | uint8 | **client assign-class**: Class to assign, 0-3 (0 = no events) | `--class` |  |
@@ -739,6 +781,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_ATTRIBUTE_SET** | uint16 | **client attributes**, **client write-attribute**: Device attribute set: 0 is the standard set of IEEE 1815-2012, other sets are defined by the outstation | `--set` |  |
 | **DNP3CTL_ATTRIBUTE_TYPE** | string | **client write-attribute**: Data type of the value: vstr (visible string), uint, int or float | `--data-type` | vstr |
 | **DNP3CTL_ATTRIBUTE_VALUE** | string | **client write-attribute**: Value to write | `--value` |  |
+| **DNP3CTL_AUTO_EVENT_POLL** | bool | **client monitor**: Poll the event classes the outstation reports events for (IIN1.1-1.3) | `--auto-event-poll` |  |
 | **DNP3CTL_BAUD** | uint32 | every client command, **server start**: Serial baud rate (0 = 9600) | `--baud` |  |
 | **DNP3CTL_BLOCK_SIZE** | uint16 | **client file ls**, **client file get**, **client file put**, **client file rm**: Largest block to ask for or send, in octets (0 = the outstation chooses) | `--block-size` |  |
 | **DNP3CTL_BROADCAST** | string | **client operate**, **client freeze**: Send to every outstation on the channel instead of --outstation, at one of the broadcast addresses: no-confirm, confirm or optional (whether the outstations ask for an application confirmation); nobody answers, and each outstation sets IIN1.0 BROADCAST in its next response | `--broadcast` |  |
@@ -750,13 +793,20 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_DATA_BITS** | uint8 | every client command, **server start**: Serial data bits, 5-8 (0 = 8) | `--data-bits` |  |
 | **DNP3CTL_DEADBAND** | string | **client write-deadband**: The deadband: a number of 0 or more | `--value` |  |
 | **DNP3CTL_DEADBAND_INDEX** | string | **client write-deadband**: Analog inputs whose deadband is written: an index, or several comma-separated | `--index` |  |
+| **DNP3CTL_DEADBAND_INTEGER_ONLY** | bool | **server start**: Report analog input deadbands in g34v1 and g34v2 only, rounded, for masters without floating point; a read of g34v3 is answered IIN2.1 | `--deadband-integer-only` |  |
 | **DNP3CTL_DEADBAND_VARIATION** | uint8 | **client write-deadband**: Variation of g34: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); 0 = 2 for whole numbers that fit, 3 otherwise | `--variation` |  |
 | **DNP3CTL_DIAL** | string | **server start**: Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends | `--dial` |  |
+| **DNP3CTL_DIAL_SOURCE_ADDRESS** | string | **server start**: With --dial: local IP address to connect to the master from (default: chosen by the operating system) | `--dial-source-address` |  |
 | **DNP3CTL_DISCOVER_FORCE_LARGE** | bool | **discover**: Allow a scan of more hosts than the built-in safety cap | `--force-large-scan` |  |
+| **DNP3CTL_DUAL_ENDPOINT** | string | **client monitor**: Also take the connections the outstation establishes, on this address (host:port or :port), while connecting to it as well (TCP dual end point; the master's own connection has priority); not with --listen, udp:// or serial:// | `--dual-endpoint` |  |
+| **DNP3CTL_DUAL_ENDPOINT_ALLOW** | strings | **client monitor**: With --dual-endpoint: only take connections from these addresses or CIDR prefixes (default: any) | `--dual-endpoint-allow` |  |
 | **DNP3CTL_DURATION** | uint32 | **client monitor**, **server start**: Stop after this many seconds (0 = until interrupted) | `--duration` |  |
 | **DNP3CTL_EVENTS** | bool | **client objects**: Only list event objects | `--events` |  |
+| **DNP3CTL_FILE_CREATED** | string | **client file put**: Time of creation to give the file: an RFC 3339 time such as 2026-01-31T12:00:00Z (default: now) | `--created` |  |
 | **DNP3CTL_FILE_PASSWORD_FILE** | string | **client file ls**, **client file get**, **client file put**, **client file rm**: File holding the password of --file-user | `--file-password-file` |  |
 | **DNP3CTL_FILE_PATH** | string | **client file ls**: Directory to list; **client file info**: File or directory on the outstation; **client file get**: File on the outstation; **client file put**: File to create on the outstation; **client file rm**: File to delete on the outstation | `--path` | / (file ls); required elsewhere |
+| **DNP3CTL_FILE_TIMEOUT** | uint32 | **server start**: Seconds an open file may go without a request naming it before the outstation closes it and reports HANDLE_EXPIRED, 1-3600 (0 = 300) | `--file-timeout` |  |
+| **DNP3CTL_FILE_TIMEOUT_CLASS** | uint8 | **server start**: Event class 1-3 of the HANDLE_EXPIRED file event, g70v6 (0 = 1) | `--file-timeout-class` |  |
 | **DNP3CTL_FILE_USER** | string | **client file ls**, **client file get**, **client file put**, **client file rm**: User name to authenticate file operations with (AUTHENTICATE_FILE); the password comes from --file-password-file or DNP3CTL_FILE_PASSWORD | `--file-user` |  |
 | **DNP3CTL_FORCE** | bool | **client file get**: Overwrite an existing --output file; **server generate-config**: Overwrite an existing file | `--force` |  |
 | **DNP3CTL_FREEZE_AT** | string | **client freeze**: Freeze at this time instead of at once (FREEZE_AT_TIME): an RFC 3339 time such as 2026-01-31T12:00:00Z | `--at` |  |
@@ -773,12 +823,20 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_LINK_RETRIES** | uint8 | every client command, **server start**: Repeats of an unanswered primary link frame | `--link-retries` |  |
 | **DNP3CTL_LINK_TIMEOUT** | uint32 | every client command, **server start**: Wait in milliseconds for a link layer answer (0 = 2000) | `--link-timeout` |  |
 | **DNP3CTL_LISTEN** | string | **server start**: Address to listen on (TCP, TLS and UDP) | `--listen` |  |
-| **DNP3CTL_MANAGE_FUNCTION** | string | **client manage**: Management function: initialize-data, initialize-application, start-application, stop-application or save-configuration | `--function` |  |
+| **DNP3CTL_MANAGE_FUNCTION** | string | **client manage**: Management function: initialize-data, initialize-application, start-application, stop-application, save-configuration or activate-config | `--function` |  |
 | **DNP3CTL_MASTER** | uint16 | every client command: Link address of this master; **discover**: Link address the probe is sent from | `--master` | 1 |
+| **DNP3CTL_MASTER_IPS** | strings | **server start**: Only answer masters from these IP addresses or CIDR prefixes, over TCP, TLS and UDP: other connections are closed, other datagrams ignored (default: any) | `--master-ips` |  |
 | **DNP3CTL_MASTER_LISTEN** | string | Wait for the outstation to connect instead of connecting to it (dual end point): the address to listen on, host, host:port or :port (without a port in it, --port); TLS with --tls-cert and --tls-key; mutually exclusive with --url and --ip | `--listen` |  |
+| **DNP3CTL_MAX_CONTROLS** | uint16 | **server start**: Controls one request may carry; the others are answered TOO_MANY_OBJS (0 = 16) | `--max-controls` |  |
+| **DNP3CTL_MAX_FRAGMENT** | uint16 | Largest response fragment to reassemble, in octets, 249-65535 (0 = 2048; below 2048 is outside IEEE 1815-2012 clause 4.3 Rule 3) | `--max-fragment` |  |
+| **DNP3CTL_MAX_REQUEST_FRAGMENT** | uint16 | Largest request fragment to send, in octets, at least 249 (0 = no limit); a request that does not fit is refused, file blocks are sized to fit | `--max-request-fragment` |  |
+| **DNP3CTL_MAX_RX_FRAGMENT** | uint16 | **server start**: Largest request fragment to reassemble, in octets, at least 249 (0 = 2048) | `--max-rx-fragment` |  |
 | **DNP3CTL_MAX_SESSIONS** | uint16 | **server start**: Maximum number of simultaneous connections (0 = 16) | `--max-sessions` |  |
+| **DNP3CTL_MAX_TX_FRAGMENT** | uint16 | **server start**: Largest response fragment to send, in octets, at least 249 (0 = 2048) | `--max-tx-fragment` |  |
 | **DNP3CTL_NO_ACK** | bool | **client freeze**: Send the no-acknowledgement form (IMMED_FREEZE_NR, FREEZE_CLEAR_NR): no response | `--no-ack` |  |
 | **DNP3CTL_NO_RECONNECT** | bool | **client monitor**: Exit when the connection is lost instead of reconnecting | `--no-reconnect` |  |
+| **DNP3CTL_NO_SOLICITED_CONFIRM** | bool | Do not confirm responses that ask for a confirmation (diagnostics only: the outstation keeps its events and sends no further fragment) | `--no-solicited-confirm` |  |
+| **DNP3CTL_NO_UNSOLICITED_CONFIRM** | bool | **client monitor**: Do not confirm unsolicited responses (diagnostics only: the outstation repeats them, and may answer no request until it is confirmed) | `--no-unsolicited-confirm` |  |
 | **DNP3CTL_OBJECT** | string | **client poll**: Only show these objects: groups or group/variations, comma-separated (e.g. g30,g1v2,32); **client read**: Objects to read, comma-separated: g30v5 (or 30.5), or g30 / g30v0 for any variation; **client monitor**: Only show these objects: groups or group/variations, comma-separated; **client assign-class**: Static objects whose points are assigned, comma-separated (e.g. g30, g1); **client freeze**: Objects to freeze, comma-separated: g20 (counters) or g30 (analog inputs) | `--object` |  |
 | **DNP3CTL_OFF_TIME** | uint32 | **client operate**: Off time of a pulse in milliseconds | `--off-time` |  |
 | **DNP3CTL_ON_TIME** | uint32 | **client operate**: On time of a pulse in milliseconds | `--on-time` |  |
@@ -797,25 +855,40 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_POLL_MODE** | string | **client poll**: What to read: integrity (events of classes 1-3, then the static data of class 0), event (events of --class) or class (exactly the classes of --class, 0 included) | `--mode` | integrity |
 | **DNP3CTL_PORT** | uint16 | every client command: Outstation TCP port (used when --url is not set), or the port of --listen; **server start**: Port to listen on (0 = 20000, or 19999 with TLS) | `--port` | 20000 (client); server start: 20000, 19999 with TLS |
 | **DNP3CTL_PORTS** | strings | **discover**: TCP ports to probe | `--ports` | [20000] |
+| **DNP3CTL_QUEUE_LIMIT** | uint16 | **client monitor**: Requests that may wait for their turn, polls and automatic tasks (0 = 64) | `--queue-limit` |  |
 | **DNP3CTL_RANGE** | string | **client read**: Point indexes to read: a range (0-9), a list (1,4,7) or empty for all points; **client assign-class**, **client freeze**: Point indexes: a range (0-9), a list (1,4,7) or empty for all points | `--range` |  |
+| **DNP3CTL_RECONNECT_JITTER** | uint8 | **client monitor**: Randomize each delay before a reconnect by up to this percentage, 0-100, so that masters that lost their connections together do not reconnect together (0 = exact doubling) | `--reconnect-jitter` |  |
+| **DNP3CTL_REDIAL_JITTER** | uint8 | **server start**: With --dial: randomize each delay between attempts by up to this percentage, 0-100, so that outstations that lost their connections together do not reconnect together (0 = exact doubling) | `--redial-jitter` |  |
+| **DNP3CTL_REDIAL_MAX_DELAY** | uint32 | **server start**: With --dial: the longest delay between attempts, in milliseconds (0 = 60000) | `--redial-max-delay` |  |
+| **DNP3CTL_REDIAL_MIN_DELAY** | uint32 | **server start**: With --dial: milliseconds before the first new attempt after a failed or ended connection, doubling after each further failure (0 = 1000) | `--redial-min-delay` |  |
 | **DNP3CTL_RESPONSE_TIMEOUT** | uint32 | Wait in milliseconds for each fragment of a response (0 = 5000) | `--response-timeout` |  |
 | **DNP3CTL_RESTART_TYPE** | string | **client restart**: Restart: cold (full restart of the outstation) or warm (restart of the DNP3 application) | `--type` |  |
 | **DNP3CTL_RETRIES** | uint8 | Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes | `--retries` |  |
+| **DNP3CTL_RETRY_JITTER** | uint8 | With --retries: randomize each pause between attempts by up to this percentage, 0-100, so that masters do not retry together (0 = exact doubling) | `--retry-jitter` |  |
 | **DNP3CTL_SA_AGGRESSIVE** | bool | Send critical requests in Secure Authentication aggressive mode, with their MAC instead of waiting for a challenge, once the outstation has challenged one; needs a key | `--sa-aggressive` |  |
+| **DNP3CTL_SA_CHALLENGE_MACS** | string | MAC algorithms an outstation's challenge may ask for, comma-separated, from hmac-sha256-16, hmac-sha256-8, hmac-sha1-10, hmac-sha1-8 and hmac-sha1-4 (default: all but hmac-sha1-4, and over TCP and UDP all but the 8-octet ones); needs a key | `--sa-challenge-macs` |  |
+| **DNP3CTL_SA_EXPECTED_KEY_CHANGE_COUNT** | uint32 | **server start**: Secure authentication: authentication messages session keys serve without a session key change (0 = 2000) | `--sa-expected-key-change-count` |  |
+| **DNP3CTL_SA_EXPECTED_KEY_CHANGE_INTERVAL** | uint32 | **server start**: Secure authentication: seconds session keys stay valid without a session key change (0 = 1800); not for a pre-shared session key | `--sa-expected-key-change-interval` |  |
+| **DNP3CTL_SA_KEY_CHANGE_COUNT** | uint32 | Change the session keys after this many authentication messages, with an update key (0 = 1000) | `--sa-key-change-count` |  |
 | **DNP3CTL_SA_KEY_CHANGE_INTERVAL** | uint32 | Seconds between session key changes while connected, with an update key (0 = 900) | `--sa-key-change-interval` |  |
 | **DNP3CTL_SA_KEY_FILE** | string | every client command, **server start**: File holding a pre-shared session key of Secure Authentication v5, as hex (or set DNP3CTL_SA_KEY); enables secure authentication | `--sa-key-file` |  |
 | **DNP3CTL_SA_MAC** | string | every client command, **server start**: Secure authentication MAC algorithm: hmac-sha256-16 (default), hmac-sha256-8, hmac-sha1-10 or hmac-sha1-8 | `--sa-mac` |  |
-| **DNP3CTL_SA_REPLY_TIMEOUT** | uint32 | **server start**: Secure authentication: milliseconds a challenge waits for the master's reply (0 = 10000) | `--sa-reply-timeout` |  |
+| **DNP3CTL_SA_MAX_KEY_STATUS_REQUESTS** | uint8 | **server start**: Secure authentication: key status requests within the expected key change interval before the outstation logs an error, 2-255 (0 = 5) | `--sa-max-key-status-requests` |  |
+| **DNP3CTL_SA_NO_AGGRESSIVE** | bool | **server start**: Secure authentication: refuse aggressive mode requests (error 4, aggressive mode not supported) | `--sa-no-aggressive` |  |
+| **DNP3CTL_SA_REPLY_TIMEOUT** | uint32 | **server start**: Secure authentication: milliseconds a challenge waits for the master's reply (0 = 2000) | `--sa-reply-timeout` |  |
 | **DNP3CTL_SA_STATISTICS_CLASS** | uint8 | **server start**: Secure authentication: event class 1-3 of security statistic events, g122 (0 = 1) | `--sa-statistics-class` |  |
-| **DNP3CTL_SA_STATISTICS_THRESHOLD** | uint32 | **server start**: Secure authentication: increments of a security statistic between two of its events (0 = 10) | `--sa-statistics-threshold` |  |
+| **DNP3CTL_SA_STATISTICS_THRESHOLD** | uint32 | **server start**: Secure authentication: increments of a security statistic between two of its events, 1-65535, for every statistic --sa-threshold does not name (0 = the defaults of IEEE 1815-2012 Table 7-6) | `--sa-statistics-threshold` |  |
+| **DNP3CTL_SA_THRESHOLD** | strings | **server start**: Secure authentication: the event threshold of single statistics, as index=threshold (index 0-17 of IEEE 1815-2012 Table 7-6, threshold 1-65535), comma-separated | `--sa-threshold` |  |
 | **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
 | **DNP3CTL_SA_USER** | uint16 | every client command, **server start**: Secure authentication user number | `--sa-user` | 1 |
 | **DNP3CTL_SERIAL** | string | **server start**: Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits | `--serial` |  |
+| **DNP3CTL_SOURCE_ADDRESS** | string | Local IP address to connect from, over tcp://, tls:// and udp:// (default: chosen by the operating system), for a host with several interfaces or an outstation that accepts known master addresses only | `--source-address` |  |
 | **DNP3CTL_STOP_BITS** | uint8 | every client command, **server start**: Serial stop bits, 1 or 2 (0 = 1) | `--stop-bits` |  |
 | **DNP3CTL_SUBNETS** | strings | **discover**: Subnets, ranges or addresses to probe: CIDR (192.168.1.0/24), range (192.168.1.10-20) or a single address; comma-separated | `--subnets` |  |
 | **DNP3CTL_TIME** | string | **client time-sync**: Time to write with --method write: now, or an RFC 3339 time such as 2026-01-31T12:00:00Z | `--time` |  |
 | **DNP3CTL_TIMEOUT** | uint32 | every client command: Timeout in milliseconds for connecting and for each request, retries included (0 = 10000); **discover**: Timeout in milliseconds per probe (0 = 1000) | `--timeout` |  |
-| **DNP3CTL_TIME_METHOD** | string | **client time-sync**: Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay) or write (the time of --time, without correction) | `--method` | lan |
+| **DNP3CTL_TIME_METHOD** | string | **client time-sync**: Procedure: lan (RECORD_CURRENT_TIME, then the time of that request), non-lan (DELAY_MEASURE, then the time corrected by the delay), write (the time of --time, without correction) or clear-need-time (clear NEED_TIME, IIN1.4, without setting the time) | `--method` | lan |
+| **DNP3CTL_TIME_SYNC** | string | **client monitor**: What to do when the outstation asks for the time (NEED_TIME): auto (LAN procedure over TCP, TLS and UDP, non-LAN over serial), lan, non-lan, clear-need-time (clear the indication only) or none | `--time-sync` |  |
 | **DNP3CTL_TLS** | bool | Use TLS with --ip (implied by a tls:// URL) | `--tls` |  |
 | **DNP3CTL_TLS_CA** | string | every client command: PEM file with the CA certificates to verify the outstation with (default: system roots); **server start**: With a tls:// --dial: PEM file with the CA certificates to verify the master with (default: system roots) | `--tls-ca` |  |
 | **DNP3CTL_TLS_CERT** | string | every client command: PEM file with the own certificate (client authentication); **server start**: PEM file with the server certificate; with --tls-key it makes the server a TLS server (with a tls:// --dial: the certificate presented to the master) | `--tls-cert` |  |
@@ -824,6 +897,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_TLS_KEY** | string | every client command, **server start**: PEM file with the private key of --tls-cert | `--tls-key` |  |
 | **DNP3CTL_TLS_SERVER_NAME** | string | Name to verify the outstation certificate against (default: the host) | `--tls-server-name` |  |
 | **DNP3CTL_UDP** | bool | **server start**: Serve DNP3 over UDP instead of TCP (one master at a time) | `--udp` |  |
+| **DNP3CTL_UDP_FIXED** | bool | **server start**: With --udp-peer: always send to that address and port, and take datagrams from its IP address only (a fixed master port, IEEE 1815-2012 Table 13-1 case 1) | `--udp-fixed` |  |
 | **DNP3CTL_UDP_LOCAL_PORT** | uint16 | With udp:// URLs: send from this local UDP port, for outstations that answer only a configured master endpoint (often 20000); 0 = any free port | `--udp-local-port` |  |
 | **DNP3CTL_UDP_PEER** | string | **server start**: With --udp: the master's address (host:port), so that unsolicited responses reach it before it has sent anything | `--udp-peer` |  |
 | **DNP3CTL_UNSOLICITED** | string | **client monitor**: Classes to enable unsolicited responses for after connecting, comma-separated, or none | `--unsolicited` | 1,2,3 |
@@ -873,7 +947,7 @@ The outstation answered with values and set an error bit in its internal indicat
 
 ### Which outstations and stacks has it been tested with?
 
-The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against opendnp3, DSC go-dnp3, dnp3py and cB-Sigma dnp3, and as outstation against nfm-dnp3, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.11.0, contracts 1.3 to 1.5: among others device attribute sets of every type, broadcast, freeze at time, deadbands, file append and ACTIVATE_CONFIG), and its outstation runs the DNP Users Group's IED certification procedures (dnp3c: 3.1 rev 1 at subset levels 2 and 3, 2.7 at level 2) in CI. That is not a certification. dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
+The library underneath, [go-dnp3](https://github.com/otfabric/go-dnp3), runs an interoperability suite as master and as outstation against opendnp3, DSC go-dnp3, dnp3py and cB-Sigma dnp3, and as outstation against nfm-dnp3, in the containers of [otfabric/dnp3-interop](https://github.com/otfabric/dnp3-interop) (v0.11.2, contracts 1.3 to 1.5: among others device attribute sets of every type, broadcast, freeze at time, deadbands, file append and ACTIVATE_CONFIG), and its outstation runs the DNP Users Group's IED certification procedures (dnp3c: 3.1 rev 1 at subset levels 2 and 3, 2.7 at level 2) in CI. That is not a certification. dnp3ctl's own tests run every command against its simulated outstation over TCP, TLS, UDP and a serial stream. If you use dnp3ctl with a device it has trouble with, please [open an issue](https://github.com/otfabric/dnp3ctl/issues) with the `--debug` trace.
 
 ### Does dnp3ctl support TLS and Secure Authentication?
 
@@ -885,11 +959,19 @@ Yes: `--url serial:///dev/ttyUSB0 --baud 19200` (or `serial://COM3` on Windows) 
 
 ### Will polling a live outstation disturb it?
 
-It can. Events an outstation has reported to a master are gone from its buffer: a poll or a monitor with the link address of the regular master takes those events away from it. Use a link address of your own, if the outstation keeps a buffer per master, or a read of class 0 or of static objects only. A connection with the link address of a master that is connected replaces that master's connection. An outstation may also accept few connections.
+It can. Events an outstation has reported to a master are gone from its buffer: a poll or a monitor with the link address of the regular master takes those events away from it. Use a link address of your own, if the outstation keeps a buffer per master, or a read of class 0 or of static objects only. An outstation that follows IEEE 1815-2012 clause 13.2.3.3 refuses a connection with the link address of a master that is connected and answering; an older one may replace that master's connection instead. An outstation may also accept few connections.
 
 ### How do I use dnp3ctl in scripts and CI?
 
 Pass `--format json` (or set `DNP3CTL_FORMAT=json`). Progress goes to stderr, the result goes to stdout, and a failure returns one JSON error object with a stable exit code. `dnp3ctl server start --config model.yaml --duration 60` gives a pipeline an outstation to test against. See [General CLI usage](#general-cli-usage), [docs/json-output.md](docs/json-output.md) and [docs/exitcodes.md](docs/exitcodes.md).
+
+### Does dnp3ctl expose everything go-dnp3 can do?
+
+Every master and outstation feature of go-dnp3 has a command or a flag, with these exceptions:
+
+- **`client.WithDialer`, `client.UDPWithDialer` and `server.WithDialer`** take any dialer, a proxy's or a jump host's for example; dnp3ctl uses them to bind a source address (`--source-address`, `--dial-source-address`) and supplies no other dialer: a command-line tool has no proxy configuration of its own to hand them.
+- **`server.ServeByMasterIP`** (routing connections to outstations by the master's IP address): the outstations of one `server start` are told apart by their link addresses (`--config` several times); `--master-ips` restricts the masters of all of them.
+- **`client.WithKeyChangeInterval(0)`** (session key changes by count only): `--sa-key-change-interval 0` means the default of 900 seconds.
 
 ---
 

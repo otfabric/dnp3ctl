@@ -144,9 +144,12 @@ func (s *fileServer) Open(_ context.Context, req server.FileRequest) (server.Fil
 		if s.isDir(name) {
 			return nil, app.FilePermissionDenied
 		}
-		w := &writeFile{fs: s, name: name, perm: req.Permissions}
+		// A new file gets the time of creation the master asks for, or now; one appended
+		// to keeps its own.
+		w := &writeFile{fs: s, name: name, perm: req.Permissions, created: req.Created}
 		if e, ok := s.files[name]; ok && req.Mode == app.FileModeAppend {
 			w.buf.Write(e.data)
+			w.created = e.created
 		}
 		if w.perm == 0 {
 			w.perm = 0o644
@@ -212,7 +215,7 @@ func (s *fileServer) sent(name string, n int, abort bool) {
 }
 
 // store keeps a written file, on disk too when the model names an upload directory.
-func (s *fileServer) store(name string, data []byte, perm app.Permissions) error {
+func (s *fileServer) store(name string, data []byte, perm app.Permissions, created app.Timestamp) error {
 	if s.dir != "" {
 		p := filepath.Join(s.dir, filepath.FromSlash(strings.TrimPrefix(name, "/")))
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
@@ -224,7 +227,10 @@ func (s *fileServer) store(name string, data []byte, perm app.Permissions) error
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.files[name] = &memEntry{data: data, created: app.TimestampOf(s.now()), perm: perm}
+	if created == 0 {
+		created = app.TimestampOf(s.now())
+	}
+	s.files[name] = &memEntry{data: data, created: created, perm: perm}
 	s.event(types.ServerEvent{Event: "file", Detail: fmt.Sprintf("received %s (%d octets)", path.Clean(name), len(data))})
 	return nil
 }
@@ -248,10 +254,11 @@ func (f *readFile) Close(abort bool) error {
 
 // writeFile collects a file a master writes and stores it when the transfer completes.
 type writeFile struct {
-	fs   *fileServer
-	name string
-	perm app.Permissions
-	buf  bytes.Buffer
+	fs      *fileServer
+	name    string
+	perm    app.Permissions
+	created app.Timestamp
+	buf     bytes.Buffer
 }
 
 func (f *writeFile) Read([]byte) (int, error) { return 0, io.EOF }
@@ -271,5 +278,5 @@ func (f *writeFile) Close(abort bool) error {
 		f.fs.event(types.ServerEvent{Event: "file", Detail: "write of " + f.name + " aborted"})
 		return nil
 	}
-	return f.fs.store(f.name, bytes.Clone(f.buf.Bytes()), f.perm)
+	return f.fs.store(f.name, bytes.Clone(f.buf.Bytes()), f.perm, f.created)
 }

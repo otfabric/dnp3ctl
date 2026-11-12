@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,9 +31,138 @@ func monitorClasses(s string) ([]int, error) {
 	return ParseClasses(s, 1, allEventClasses)
 }
 
+// timeSyncModes are the values of --time-sync of `client monitor`; auto leaves go-dnp3's
+// choice (LAN over TCP, TLS and UDP, non-LAN over other streams).
+var timeSyncModes = map[string]client.TimeSync{
+	"lan":             client.TimeSyncLAN,
+	"non-lan":         client.TimeSyncNonLAN,
+	"clear-need-time": client.TimeSyncClearNeedTime,
+	"none":            client.TimeSyncNone,
+}
+
+// TimeSyncModes describes the values of --time-sync, for completion.
+func TimeSyncModes() map[string]string {
+	return map[string]string{
+		"auto":            "LAN procedure over TCP, TLS and UDP, non-LAN over serial (default)",
+		"lan":             "RECORD_CURRENT_TIME, then the time of that request",
+		"non-lan":         "DELAY_MEASURE, then the time corrected by the delay",
+		"clear-need-time": "clear NEED_TIME without setting the time",
+		"none":            "leave NEED_TIME to the operator",
+	}
+}
+
+// monitorOptions returns the options of cfg that only a long-running master has, and the
+// listener of --dual-endpoint, which the caller closes when it is not handed to a client.
+func monitorOptions(cfg *config.MonitorConfig, listen bool) ([]client.Option, net.Listener, error) {
+	var opts []client.Option
+	switch mode := strings.ToLower(strings.TrimSpace(cfg.TimeSync)); mode {
+	case "", "auto":
+	default:
+		ts, ok := timeSyncModes[mode]
+		if !ok {
+			return nil, nil, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid --time-sync %q: use auto, lan, non-lan, clear-need-time or none", cfg.TimeSync), nil)
+		}
+		opts = append(opts, client.WithTimeSync(ts))
+	}
+	j, err := jitter("--reconnect-jitter", cfg.ReconnectJitter)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch {
+	case !cfg.NoReconnect:
+		opts = append(opts, client.WithReconnect(client.Reconnect{Jitter: j}))
+	case cfg.ReconnectJitter != 0:
+		return nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--reconnect-jitter does not apply with --no-reconnect", nil)
+	}
+	if cfg.AutoEventPoll {
+		opts = append(opts, client.WithAutoEventPoll(true))
+	}
+	if cfg.QueueLimit != 0 {
+		opts = append(opts, client.WithQueueLimit(int(cfg.QueueLimit)))
+	}
+	if cfg.NoUnsolicitedConfirm {
+		opts = append(opts, client.WithUnsolicitedConfirm(false))
+	}
+	allow, err := ParsePrefixes(cfg.DualEndpointAllow, "--dual-endpoint-allow")
+	if err != nil {
+		return nil, nil, errs.InvalidInput(errs.CodeInvalidInput, err.Error(), err)
+	}
+	addr := strings.TrimSpace(cfg.DualEndpoint)
+	if addr == "" {
+		if len(allow) > 0 {
+			return nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--dual-endpoint-allow needs --dual-endpoint", nil)
+		}
+		return opts, nil, nil
+	}
+	target, err := cfg.ResolveTarget()
+	if err != nil {
+		return nil, nil, errs.InvalidInput(errs.CodeInvalidURL, err.Error(), err)
+	}
+	if target.Listen || target.Scheme != config.SchemeTCP {
+		return nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("--dual-endpoint needs a tcp:// outstation the master connects to; the target is %s", target), nil)
+	}
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return nil, nil, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid --dual-endpoint %q: use host:port or :port", cfg.DualEndpoint), err)
+	}
+	if !listen {
+		return opts, nil, nil
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, errs.New(errs.KindTransport, errs.CodeListenFailed, fmt.Sprintf("cannot listen for the outstation: %v", err), err)
+	}
+	return append(opts, client.WithDualEndpoint(l, allowFunc(allow))), l, nil
+}
+
+// allowFunc returns the address check of --dual-endpoint-allow: nil (any address) for no
+// prefixes.
+func allowFunc(allow []netip.Prefix) func(net.Addr) bool {
+	if len(allow) == 0 {
+		return nil
+	}
+	return func(a net.Addr) bool {
+		ap, err := netip.ParseAddrPort(a.String())
+		if err != nil {
+			return false
+		}
+		for _, p := range allow {
+			if p.Contains(ap.Addr().Unmap()) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// ParsePrefixes parses a list of IP addresses and CIDR prefixes, as --allow, --master-ips
+// and --dual-endpoint-allow take them; an address is a prefix of its full length. flag
+// names the list in errors.
+func ParsePrefixes(list []string, flag string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, s := range list {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(s); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s %q: use an address or a CIDR prefix", flag, s)
+		}
+		out = append(out, netip.PrefixFrom(addr.WithZone(""), addr.BitLen()))
+	}
+	return out, nil
+}
+
 // CheckMonitor validates the configuration of `client monitor`.
 func CheckMonitor(cfg *config.MonitorConfig) error {
 	if err := Validate(&cfg.ConnConfig); err != nil {
+		return err
+	}
+	if _, _, err := monitorOptions(cfg, false); err != nil {
 		return err
 	}
 	if _, err := monitorClasses(cfg.Unsolicited); err != nil {
@@ -76,16 +206,11 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		failed error
 	)
 	// An outstation that restarted has forgotten which classes this master enabled for
-	// unsolicited responses: enable them again when it reports the restart.
-	restarted := make(chan struct{}, 1)
+	// unsolicited responses: go-dnp3 runs the restart procedure of IEEE 1815-2012 clause
+	// 5.1.1.1.2 (clear IIN1.7, time, integrity poll, ENABLE_UNSOLICITED of the startup
+	// classes) by itself; the monitor reports the restart.
 	watcher := &restartWatcher{onRestart: func() {
-		if len(classes) == 0 {
-			return
-		}
-		select {
-		case restarted <- struct{}{}:
-		default:
-		}
+		_, _ = fmt.Fprintln(progress, "monitor: the outstation reported a restart")
 	}}
 	if cfg.Debug {
 		watcher.trace = &Tracer{W: progress}
@@ -131,6 +256,15 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 			}
 		}
 	}
+	mopts, dual, err := monitorOptions(cfg, true)
+	if err != nil {
+		return summary, err
+	}
+	if dual != nil {
+		// The client closes the listener of WithDualEndpoint; this covers a client that
+		// was never created.
+		defer func() { _ = dual.Close() }()
+	}
 	extra := []client.Option{
 		client.WithHandler(handler),
 		client.WithStateHandler(state),
@@ -138,15 +272,11 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 		// A long-running master clears DEVICE_RESTART, as IEEE 1815-2012 expects of it.
 		client.WithAutoClearRestart(true),
 		client.WithMetrics(watcher),
+		// After a restart or an event buffer overflow the outstation's events are gone: with
+		// --integrity an integrity poll brings the stream up to date again.
+		client.WithAutoIntegrity(cfg.Integrity),
 	}
-	if cfg.Integrity {
-		// After a restart or an event buffer overflow the outstation's events are gone: an
-		// integrity poll brings the stream up to date again.
-		extra = append(extra, client.WithAutoIntegrity(true))
-	}
-	if !cfg.NoReconnect {
-		extra = append(extra, client.WithReconnect(client.Reconnect{}))
-	}
+	extra = append(extra, mopts...)
 	if cfg.PollInterval != 0 {
 		extra = append(extra, client.WithPoll(client.Poll{Interval: time.Duration(cfg.PollInterval) * time.Second, Headers: app.ClassHeaders(1, 2, 3)}))
 	}
@@ -154,7 +284,7 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 	if t, err := cfg.ResolveTarget(); err == nil {
 		summary.Target = t.String()
 	}
-	s, err := Dial(ctx, &cfg.ConnConfig, progress, extra...)
+	s, err := DialMonitor(ctx, &cfg.ConnConfig, progress, extra...)
 	if err != nil {
 		summary.Seconds = time.Since(begin).Seconds()
 		mu.Lock()
@@ -177,14 +307,11 @@ wait:
 		case err := <-lost:
 			result = WrapError(err)
 			break wait
-		case <-restarted:
-			rctx, stop := context.WithTimeout(ctx, s.Timeout)
-			if err := s.EnableUnsolicited(rctx, classes...); err != nil && ctx.Err() == nil {
-				_, _ = fmt.Fprintf(progress, "monitor: enabling unsolicited responses after a restart: %v\n", WrapError(err))
-			} else if err == nil {
-				_, _ = fmt.Fprintln(progress, "monitor: the outstation restarted: unsolicited responses enabled again")
-			}
-			stop()
+		}
+	}
+	if cfg.SAKeyFile != "" || cfg.SAUpdateKeyFile != "" || cfg.SAKey != "" || cfg.SAUpdateKey != "" {
+		if line := SecurityStatisticsText(s.SecurityStatistics()); line != "" {
+			_, _ = fmt.Fprintf(progress, "monitor: security statistics of the master: %s\n", line)
 		}
 	}
 	_ = s.Close()
@@ -260,4 +387,16 @@ func (w *restartWatcher) OnDecodeError(remote net.Addr, err error) {
 	if w.trace != nil {
 		w.trace.OnDecodeError(remote, err)
 	}
+}
+
+// SecurityStatisticsText renders the master's security statistics (IEEE 1815-2012 Table
+// 7-6) that are not zero, "name n" comma-separated, in the order of the table.
+func SecurityStatisticsText(stats []uint32) string {
+	var parts []string
+	for i, n := range stats {
+		if n != 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", statisticName(uint32(i)), n))
+		}
+	}
+	return strings.Join(parts, ", ")
 }

@@ -21,14 +21,18 @@ const (
 	TimeLAN    = "lan"
 	TimeNonLAN = "non-lan"
 	TimeWrite  = "write"
+	// TimeClearNeedTime clears NEED_TIME (IIN1.4) without setting the time, as IEEE
+	// 1815-2012 clause 4.5.5 recommends where timekeeping is not required.
+	TimeClearNeedTime = "clear-need-time"
 )
 
 // TimeMethods describes the values of --method of `client time-sync`.
 func TimeMethods() map[string]string {
 	return map[string]string{
-		TimeLAN:    "RECORD_CURRENT_TIME, then WRITE g50v3 (the LAN procedure)",
-		TimeNonLAN: "DELAY_MEASURE, then WRITE g50v1 corrected by the delay (serial links)",
-		TimeWrite:  "WRITE g50v1 with --time, uncorrected",
+		TimeLAN:           "RECORD_CURRENT_TIME, then WRITE g50v3 (the LAN procedure)",
+		TimeNonLAN:        "DELAY_MEASURE, then WRITE g50v1 corrected by the delay (serial links)",
+		TimeWrite:         "WRITE g50v1 with --time, uncorrected",
+		TimeClearNeedTime: "WRITE g80v1 index 4: clear NEED_TIME without setting the time",
 	}
 }
 
@@ -64,8 +68,10 @@ func timeMethod(s string) (string, error) {
 		return TimeNonLAN, nil
 	case TimeWrite:
 		return TimeWrite, nil
+	case TimeClearNeedTime:
+		return TimeClearNeedTime, nil
 	}
-	return "", fmt.Errorf("invalid --method %q: use lan, non-lan or write", s)
+	return "", fmt.Errorf("invalid --method %q: use lan, non-lan, write or clear-need-time", s)
 }
 
 // CheckTimeSync validates the configuration of `client time-sync`.
@@ -78,7 +84,7 @@ func CheckTimeSync(cfg *config.TimeSyncConfig) error {
 		return err
 	}
 	if m != TimeWrite && strings.TrimSpace(cfg.Time) != "" && !strings.EqualFold(strings.TrimSpace(cfg.Time), "now") {
-		return fmt.Errorf("--time applies to --method write; lan and non-lan send the current time")
+		return fmt.Errorf("--time applies to --method write; lan and non-lan send the current time, clear-need-time sends none")
 	}
 	_, err = ParseTime(cfg.Time, time.Now)
 	return err
@@ -103,6 +109,8 @@ func TimeSync(ctx context.Context, cfg *config.TimeSyncConfig, trace io.Writer) 
 		case TimeNonLAN:
 			res.Time = Now()
 			return s.SyncTime(ctx, client.TimeSyncNonLAN)
+		case TimeClearNeedTime:
+			return s.ClearNeedTime(ctx)
 		default:
 			res.Time = at.UTC().Format(timeLayout)
 			return s.WriteTime(ctx, at)

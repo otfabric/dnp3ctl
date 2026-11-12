@@ -5,14 +5,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/hex"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	dnp3 "github.com/otfabric/go-dnp3"
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/secauth"
 	"github.com/otfabric/go-dnp3/server"
@@ -493,30 +496,41 @@ func TestMonitor(t *testing.T) {
 		r.errHas(t, "monitor: connected", "3 values")
 	})
 	t.Run("unsolicited changes", func(t *testing.T) {
+		enables := func() int {
+			n := 0
+			for _, e := range st.Events() {
+				if e.Function == "ENABLE_UNSOLICITED" {
+					n++
+				}
+			}
+			return n
+		}
+		// The earlier subtests enabled unsolicited responses already: wait for this monitor's
+		// ENABLE_UNSOLICITED, the last step of its startup, after the integrity poll.
+		before := enables()
 		done := make(chan result, 1)
 		go func() {
 			done <- cli(t, st, "monitor", "--object", "g32", "--count", "2", "--format", "json")
 		}()
-		eventually(t, "unsolicited responses to be enabled", func() bool {
-			for _, e := range st.Events() {
-				if e.Function == "ENABLE_UNSOLICITED" {
-					return true
-				}
-			}
-			return false
-		})
+		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() > before })
 		for i := range 2 {
 			_ = st.Server().Database().UpdateAnalogInput(1, app.Analog{Value: float64(100 + i), Flags: app.FlagOnline})
 			time.Sleep(50 * time.Millisecond)
 		}
 		r := (<-done).want(t, 0)
 		lines := r.lines(t)
-		if len(lines) != 2 || lines[0]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
+		// The station records ENABLE_UNSOLICITED once it handled it, which can be before
+		// the master finished its startup; under load the first change then reached the
+		// monitor in a solicited response. The second change, 50 ms later, is unsolicited.
+		if len(lines) != 2 || lines[1]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
 			t.Errorf("unsolicited: %v", lines)
 		}
 	})
 	t.Run("outstation restart", func(t *testing.T) {
-		other := stationtest.Start(t, stationtest.Model)
+		// The restart below must come after the master has the response that clears
+		// DEVICE_RESTART: otherwise the master never sees IIN1.7 newly set.
+		cleared := &clearedRestart{}
+		other := stationtest.Start(t, stationtest.Model, func(o *station.Options) { o.Metrics = cleared })
 		enables := func() int {
 			n := 0
 			for _, e := range other.Events() {
@@ -529,20 +543,13 @@ func TestMonitor(t *testing.T) {
 		done := make(chan result, 1)
 		go func() { done <- cli(t, other, "monitor", "--object", "g32", "--count", "1", "--format", "json") }()
 		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() == 1 })
-		eventually(t, "DEVICE_RESTART to be cleared", func() bool {
-			for _, e := range other.Events() {
-				if e.Function == "WRITE" {
-					return true
-				}
-			}
-			return false
-		})
-		// After a restart the outstation has forgotten the enabled classes: the monitor
-		// enables them again, and events keep coming.
+		eventually(t, "DEVICE_RESTART to be cleared", cleared.Load)
+		// After a restart the outstation has forgotten the enabled classes: the master's
+		// restart procedure enables them again, and events keep coming.
 		other.Server().Restart()
 		eventually(t, "unsolicited responses to be enabled again", func() bool { return enables() == 2 })
 		_ = other.Server().Database().UpdateAnalogInput(1, app.Analog{Value: 7, Flags: app.FlagOnline})
-		r := (<-done).want(t, 0).errHas(t, "unsolicited responses enabled again")
+		r := (<-done).want(t, 0).errHas(t, "the outstation reported a restart")
 		if lines := r.lines(t); len(lines) != 1 || lines[0]["unsolicited"] != true {
 			t.Errorf("after the restart: %v", lines)
 		}
@@ -1013,4 +1020,17 @@ func TestManagementRestartAndDeadbands(t *testing.T) {
 	t.Run("debug log", func(t *testing.T) {
 		cli(t, st, "--debug", "read", "--object", "g1v2").want(t, 0).errHas(t, "debug: log ", "msg=connected", "component=dnp3.client")
 	})
+}
+
+// clearedRestart records that the outstation sent a response without DEVICE_RESTART
+// (IIN1.7): the response to the master's WRITE that cleared it.
+type clearedRestart struct {
+	dnp3.NopMetrics
+	atomic.Bool
+}
+
+func (c *clearedRestart) OnFragmentSent(_ net.Addr, f *app.Fragment, _ int) {
+	if f.Function == app.FuncResponse && f.IIN&app.IINDeviceRestart == 0 {
+		c.Store(true)
+	}
 }

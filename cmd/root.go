@@ -18,6 +18,7 @@ import (
 	"github.com/otfabric/dnp3ctl/internal/buildinfo"
 	clihelp "github.com/otfabric/dnp3ctl/internal/cli"
 	"github.com/otfabric/dnp3ctl/internal/config"
+	"github.com/otfabric/dnp3ctl/internal/dnp"
 	"github.com/otfabric/dnp3ctl/internal/errs"
 	"github.com/otfabric/dnp3ctl/internal/runner"
 	"github.com/spf13/cobra"
@@ -116,6 +117,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
+	defer dnp.SetWarningOutput(stderr)()
 
 	inv := &runner.Invocation{}
 	ctx = runner.WithInvocation(ctx, inv)

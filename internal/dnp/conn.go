@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -70,6 +71,48 @@ var MACAlgorithms = map[string]app.MACAlgorithm{
 	"hmac-sha1-8":    app.MACHMACSHA1Trunc8,
 }
 
+// challengeMACs maps the values of --sa-challenge-macs: the algorithms of --sa-mac and the
+// obsolete HMAC-SHA-1 truncated to 4 octets, which an outstation's challenge may still
+// name.
+var challengeMACs = map[string]app.MACAlgorithm{
+	"hmac-sha256-16": app.MACHMACSHA256Trunc16,
+	"hmac-sha256-8":  app.MACHMACSHA256Trunc8,
+	"hmac-sha1-10":   app.MACHMACSHA1Trunc10,
+	"hmac-sha1-8":    app.MACHMACSHA1Trunc8,
+	"hmac-sha1-4":    app.MACHMACSHA1Trunc4,
+}
+
+// ChallengeMACNames are the values of --sa-challenge-macs, for completion.
+func ChallengeMACNames() []string {
+	return []string{"hmac-sha256-16", "hmac-sha256-8", "hmac-sha1-10", "hmac-sha1-8", "hmac-sha1-4"}
+}
+
+// parseChallengeMACs parses --sa-challenge-macs; empty is nil, the library default.
+func parseChallengeMACs(s string) ([]app.MACAlgorithm, error) {
+	var out []app.MACAlgorithm
+	for part := range strings.SplitSeq(s, ",") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		if name == "" {
+			continue
+		}
+		alg, ok := challengeMACs[name]
+		if !ok {
+			return nil, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid --sa-challenge-macs %q: use %s", part, strings.Join(ChallengeMACNames(), ", ")), nil)
+		}
+		out = append(out, alg)
+	}
+	return out, nil
+}
+
+// jitter converts a percentage of --retry-jitter or --reconnect-jitter to the fraction
+// go-dnp3 takes.
+func jitter(flag string, pct uint8) (float64, error) {
+	if pct > 100 {
+		return 0, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid %s %d: use a percentage, 0-100", flag, pct), nil)
+	}
+	return float64(pct) / 100, nil
+}
+
 // readKey returns the key of a file or an environment variable, as hex; name describes it
 // in errors, and the two sources are named by fileFlag and envVar. An empty result means
 // neither is set.
@@ -79,6 +122,7 @@ func readKey(file, env, name, fileFlag, envVar string) ([]byte, error) {
 	case file != "" && raw != "":
 		return nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("%s and %s are mutually exclusive", fileFlag, envVar), nil)
 	case file != "":
+		checkSecretFile(file, name)
 		data, err := os.ReadFile(file)
 		if err != nil {
 			return nil, errs.InvalidInput(errs.CodeInputFileOpenFailed, fmt.Sprintf("reading the %s: %v", name, err), err)
@@ -253,18 +297,37 @@ func OpenSerial(sc serial.Config) (io.ReadWriteCloser, net.Addr, error) {
 
 // UDPOpener returns a stream opener for DNP3 over UDP to addr, sending from localPort (0
 // for any free port). Every link frame travels in a datagram, as with client.UDP.
-func UDPOpener(addr string, localPort uint16) client.StreamOpener {
-	if localPort == 0 {
+func UDPOpener(addr string, source netip.Addr, localPort uint16) client.StreamOpener {
+	if !source.IsValid() && localPort == 0 {
 		return client.UDP(addr)
 	}
-	return func(ctx context.Context) (io.ReadWriteCloser, net.Addr, error) {
-		d := net.Dialer{LocalAddr: &net.UDPAddr{Port: int(localPort)}}
-		conn, err := d.DialContext(ctx, "udp", addr)
-		if err != nil {
-			return nil, nil, err
-		}
-		return conn, conn.RemoteAddr(), nil
+	local := &net.UDPAddr{Port: int(localPort)}
+	if source.IsValid() {
+		local.IP, local.Zone = source.AsSlice(), source.Zone()
 	}
+	return client.UDPWithDialer(&net.Dialer{LocalAddr: local}, addr)
+}
+
+// dialTimeout is go-dnp3's TCP dial timeout, kept when --source-address replaces its dialer.
+const dialTimeout = 10 * time.Second
+
+// SourceDialer is the TCP dialer of a source address: connections leave from source, on a
+// port the operating system chooses.
+func SourceDialer(source netip.Addr) *net.Dialer {
+	return &net.Dialer{Timeout: dialTimeout, LocalAddr: &net.TCPAddr{IP: source.AsSlice(), Zone: source.Zone()}}
+}
+
+// ParseSourceAddress parses the IP address of flag; an empty s is the invalid netip.Addr,
+// letting the operating system choose.
+func ParseSourceAddress(flag, s string) (netip.Addr, error) {
+	if s == "" {
+		return netip.Addr{}, nil
+	}
+	a, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid %s %q: use an IP address, without a port", flag, s), err)
+	}
+	return a.Unmap(), nil
 }
 
 // acceptor is the listener of --listen: it waits for the outstation to connect, again
@@ -348,8 +411,22 @@ func options(cfg *config.ConnConfig, trace io.Writer) (config.Target, []client.O
 	switch {
 	case cfg.SAKeyChange != 0 && (user == nil || user.UpdateKey == nil):
 		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-change-interval needs an update key: set --sa-update-key-file or DNP3CTL_SA_UPDATE_KEY", nil)
+	case cfg.SAKeyChangeCount != 0 && (user == nil || user.UpdateKey == nil):
+		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-key-change-count needs an update key: set --sa-update-key-file or DNP3CTL_SA_UPDATE_KEY", nil)
 	case cfg.SAAggressive && user == nil:
 		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-aggressive needs secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)", nil)
+	case strings.TrimSpace(cfg.SAChallengeMACs) != "" && user == nil:
+		return target, nil, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--sa-challenge-macs needs secure authentication: set --sa-update-key-file or --sa-key-file (or their environment variables)", nil)
+	}
+	macs, err := parseChallengeMACs(cfg.SAChallengeMACs)
+	if err != nil {
+		return target, nil, nil, err
+	}
+	if len(macs) > 0 {
+		opts = append(opts, client.WithChallengeMACs(macs...))
+	}
+	if cfg.SAKeyChangeCount != 0 {
+		opts = append(opts, client.WithKeyChangeCount(cfg.SAKeyChangeCount))
 	}
 	if user != nil {
 		opts = append(opts, client.WithSecureAuthentication(*user))
@@ -386,16 +463,39 @@ func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, erro
 	opts := []client.Option{
 		client.WithAddresses(link.Address(cfg.Master), link.Address(cfg.Outstation)),
 		client.WithLink(clientLink(cfg.LinkConfig)),
-		// One-shot commands do exactly what they are asked: no integrity poll and no write
-		// of IIN1.7 behind the operator's back.
-		client.WithAutoIntegrity(false),
-		client.WithAutoClearRestart(false),
 	}
 	if cfg.ResponseTimeout != 0 {
 		opts = append(opts, client.WithResponseTimeout(time.Duration(cfg.ResponseTimeout)*time.Millisecond))
 	}
-	if cfg.Retries != 0 {
-		opts = append(opts, client.WithRetry(client.Retry{Attempts: int(cfg.Retries) + 1}))
+	j, err := jitter("--retry-jitter", cfg.RetryJitter)
+	if err != nil {
+		return target, nil, err
+	}
+	switch {
+	case cfg.Retries != 0:
+		opts = append(opts, client.WithRetry(client.Retry{Attempts: int(cfg.Retries) + 1, Jitter: j}))
+	case cfg.RetryJitter != 0:
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, "--retry-jitter needs --retries", nil)
+	}
+	if cfg.MaxFragment != 0 {
+		opts = append(opts, client.WithMaxFragment(int(cfg.MaxFragment)))
+	}
+	if cfg.MaxRequestFragment != 0 {
+		opts = append(opts, client.WithMaxRequestFragment(int(cfg.MaxRequestFragment)))
+	}
+	if cfg.NoSolicitedConfirm {
+		opts = append(opts, client.WithSolicitedConfirm(false))
+	}
+	source, err := ParseSourceAddress("--source-address", cfg.SourceAddress)
+	if err != nil {
+		return target, nil, err
+	}
+	if source.IsValid() && (target.Listen || target.Scheme == config.SchemeSerial) {
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("--source-address needs a tcp://, tls:// or udp:// URL that dnp3ctl connects to; the target is %s", target), nil)
+	}
+	if source.IsValid() && target.Scheme != config.SchemeUDP {
+		// The dialer also opens the client's connections of --dual-endpoint.
+		opts = append(opts, client.WithDialer(SourceDialer(source)))
 	}
 	switch {
 	case target.Listen:
@@ -407,7 +507,7 @@ func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, erro
 		}
 		opts = append(opts, client.WithTLS(tc))
 	case target.Scheme == config.SchemeUDP:
-		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), cfg.UDPLocalPort)))
+		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), source, cfg.UDPLocalPort)))
 	case target.Scheme == config.SchemeSerial:
 		sc, err := SerialSettings(target.Device, cfg.SerialConfig)
 		if err != nil {
@@ -424,13 +524,36 @@ func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, erro
 	return target, opts, nil
 }
 
-// Open prepares a client for the outstation of cfg without connecting; with --listen it
-// listens already. trace receives the frame trace of --debug. extra options are applied
-// last.
+// oneShotOptions are the options of a command that sends its requests and ends: it does
+// exactly what it is asked, nothing behind the operator's back. go-dnp3 runs an integrity
+// poll at connect (IEEE 1815-2012 clause 5.1.1.2), answers NEED_TIME (4.5.5) and clears
+// IIN1.7 and polls after a restart by default; a one-shot command turns all of it off.
+// `client monitor`, a long-running master, keeps the library's procedures instead
+// ([DialMonitor]).
+func oneShotOptions() []client.Option {
+	return []client.Option{
+		client.WithStartup(client.Startup{}),
+		client.WithTimeSync(client.TimeSyncNone),
+		client.WithAutoIntegrity(false),
+		client.WithAutoClearRestart(false),
+	}
+}
+
+// Open prepares a client for a one-shot command to the outstation of cfg without
+// connecting; with --listen it listens already. trace receives the frame trace of --debug.
+// extra options are applied last.
 func Open(cfg *config.ConnConfig, trace io.Writer, extra ...client.Option) (*Session, error) {
+	return open(cfg, trace, true, extra...)
+}
+
+// open is [Open]; oneShot adds [oneShotOptions].
+func open(cfg *config.ConnConfig, trace io.Writer, oneShot bool, extra ...client.Option) (*Session, error) {
 	target, opts, listenTLS, err := options(cfg, trace)
 	if err != nil {
 		return nil, err
+	}
+	if oneShot {
+		opts = append(opts, oneShotOptions()...)
 	}
 	s := &Session{Target: target, Outstation: cfg.Outstation, Timeout: Timeout(cfg.Timeout)}
 	if target.Listen {
@@ -457,7 +580,18 @@ func Open(cfg *config.ConnConfig, trace io.Writer, extra ...client.Option) (*Ses
 
 // Dial is [Open] followed by connecting, bounded by the timeout of cfg.
 func Dial(ctx context.Context, cfg *config.ConnConfig, trace io.Writer, extra ...client.Option) (*Session, error) {
-	s, err := Open(cfg, trace, extra...)
+	return dial(ctx, cfg, trace, true, extra...)
+}
+
+// DialMonitor is [Dial] for a long-running master (`client monitor`): without the options
+// of a one-shot command, so that the library's startup sequence, automatic time
+// synchronization and restart procedure apply unless extra changes them.
+func DialMonitor(ctx context.Context, cfg *config.ConnConfig, trace io.Writer, extra ...client.Option) (*Session, error) {
+	return dial(ctx, cfg, trace, false, extra...)
+}
+
+func dial(ctx context.Context, cfg *config.ConnConfig, trace io.Writer, oneShot bool, extra ...client.Option) (*Session, error) {
+	s, err := open(cfg, trace, oneShot, extra...)
 	if err != nil {
 		return nil, err
 	}
