@@ -18,6 +18,7 @@ Every gosec finding is fixed in the code; gosec runs on a maintainer's machine b
 
 ### Changed
 
+- Built on go-dnp3 v1.13.0 (from v1.12.0): the client's dialer gets the 10 s dial timeout in its context, as `--source-address`'s `net.Dialer` already had; no flag or output changes.
 - The `random` simulation mode draws from `crypto/rand` instead of `math/rand/v2`.
 - File names the operator gives (`--output`, `--input`, `--config`, key, password and certificate files) are cleaned with `filepath.Clean` before they are opened.
 - `--tls-server-name` with `--listen` reports `--tls-server-name does not apply to --listen`.
