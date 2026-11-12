@@ -109,7 +109,7 @@ With `client … --listen` dnp3ctl waits for an outstation to connect to it (IEE
 
 ### Static Analysis
 
-CI runs staticcheck, go vet, govulncheck and CodeQL. Gosec and Opengrep do not run in public CI (otfabric/engineering ADR-0011, rule GO-014): a maintainer scans dnp3ctl on their own machine with `make sast REPO=dnp3ctl` from [otfabric/engineering](https://github.com/otfabric/engineering) before each release. Gosec findings are fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. A finding that is accepted instead is recorded in a private triage repository, never in this one; dnp3ctl has none. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
+CI runs staticcheck, go vet, govulncheck and CodeQL. Gosec and Opengrep do not run in public CI (otfabric/engineering ADR-0011, rule GO-014): a maintainer scans dnp3ctl on their own machine with `cd ../engineering && make sast REPO=dnp3ctl` in a checkout of [otfabric/engineering](https://github.com/otfabric/engineering) beside this one before each release. Gosec findings are fixed in the code: there is no `nolint` or `#nosec` comment and no lint exclusion. A finding that is accepted instead is recorded in a private triage repository, never in this one; dnp3ctl has none. File names the operator gives are cleaned (`filepath.Clean`) and files below a directory are opened through `os.Root`; the `random` simulation mode draws from `crypto/rand`; TLS always verifies the peer.
 
 ### Verifying Downloads
 
