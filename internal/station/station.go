@@ -75,6 +75,10 @@ type Options struct {
 	// HANDLE_EXPIRED event of FileTimeoutClass (0 = 1).
 	FileTimeout      time.Duration
 	FileTimeoutClass uint8
+	// Redial is the backoff of DialAndServe between connection attempts.
+	Redial server.Redial
+	// DialSource, when valid, is the local address DialAndServe connects from.
+	DialSource netip.Addr
 }
 
 // defaultFragment is go-dnp3's largest fragment when WithMaxFragment does not set it.
@@ -247,6 +251,9 @@ func (st *Station) serverOptions() ([]server.Option, error) {
 	}
 	if st.opts.Logger != nil {
 		opts = append(opts, server.WithLogger(st.opts.Logger))
+	}
+	if st.opts.DialSource.IsValid() {
+		opts = append(opts, server.WithDialer(dnp.SourceDialer(st.opts.DialSource)))
 	}
 	return opts, nil
 }
@@ -423,7 +430,7 @@ func (st *Station) remoteText(a net.Addr) string {
 // DialAndServe connects to the master at addr, with TLS when the options have it, serves
 // the connection and connects again whenever it ends (the dual end point), until Close.
 func (st *Station) DialAndServe(ctx context.Context, addr string) error {
-	return st.srv.DialAndServe(ctx, addr, server.Redial{})
+	return st.srv.DialAndServe(ctx, addr, st.opts.Redial)
 }
 
 // ServeConn serves one stream, a serial port for example, until it ends or Close.

@@ -330,6 +330,7 @@ Every `dnp3ctl client` command takes the outstation as a URL, as an address and 
 | `--url tcp://host[:port]` | DNP3 over TCP; port 20000 when omitted |
 | `--url tls://host[:port]` | DNP3 over TLS (IEEE 1815-2012 Annex B, IEC 62351-3); port 19999 when omitted |
 | `--url udp://host[:port]` | DNP3 over UDP; port 20000 when omitted. dnp3ctl sends from any free port unless `--udp-local-port` names one, for outstations that answer only a configured master endpoint (often port 20000) |
+| `--source-address ip` | Connect from this local IP address, over `tcp://`, `tls://` and `udp://` (with `--udp-local-port`, from that port of it), for a host with several interfaces or an outstation that accepts known master addresses only. It also applies to the connections `client monitor --dual-endpoint` makes |
 | `--url serial:///dev/ttyUSB0` | A serial line (`serial://COM3` on Windows), with `--baud` (default 9600), `--data-bits` (8), `--parity` (`none`, `even`, `odd`) and `--stop-bits` (1) |
 | `--ip host [--port n]` | TCP on port 20000 or `n`; TLS when a `--tls…` flag is given |
 | `--listen host[:port]` | Waits for the outstation to connect: the dual end point (IEEE 1815-2012 annex A.3), for outstations behind a firewall or on a dial-out link. Port 20000 or `--port` when `--listen` names none (`:20000` listens on every interface); TLS when a `--tls…` flag is given |
@@ -721,6 +722,8 @@ Every event is written to stdout as it happens:
 | `--config` | The model file (YAML or JSON). Without it the built-in demo outstation is served. Repeat it (or separate files with commas) to serve several outstations, each at the link address of its model |
 | `--listen`, `--port` | Address and port to listen on. All interfaces and 20000 by default (19999 with TLS) |
 | `--dial` | Connect to the master instead of listening, at `tcp://host[:port]` or `tls://host[:port]` (the dual end point), and connect again whenever the connection ends, after 1 s and up to 1 min between attempts. The event log starts with `dialing` |
+| `--redial-min-delay`, `--redial-max-delay`, `--redial-jitter` | With `--dial`: the delay before the first new attempt (milliseconds, default 1000), doubling up to `--redial-max-delay` (default 60000); `--redial-jitter p` draws each delay from the last p percent below the doubling one (0-100), so that outstations that lost their connections together, after a master restart for example, do not reconnect together |
+| `--dial-source-address` | With `--dial`: connect to the master from this local IP address |
 | `--udp` | Serve UDP instead of TCP. The outstation answers the endpoint the last datagram came from, so it serves one master at a time. The event log says `connected` when the first datagram arrives, naming its sender as `remote`; a socket no master sent to logs neither `connected` nor `disconnected` |
 | `--udp-peer` | With `--udp`: the master's address (`host:port`). Unsolicited responses reach it before it has sent anything, and `connected` names it at once; without it they start once a master has sent a request |
 | `--serial`, `--baud`, `--data-bits`, `--parity`, `--stop-bits` | Serve on a serial port instead of the network |
@@ -793,6 +796,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_DEADBAND_INTEGER_ONLY** | bool | **server start**: Report analog input deadbands in g34v1 and g34v2 only, rounded, for masters without floating point; a read of g34v3 is answered IIN2.1 | `--deadband-integer-only` |  |
 | **DNP3CTL_DEADBAND_VARIATION** | uint8 | **client write-deadband**: Variation of g34: 1 (16-bit), 2 (32-bit) or 3 (single-precision float); 0 = 2 for whole numbers that fit, 3 otherwise | `--variation` |  |
 | **DNP3CTL_DIAL** | string | **server start**: Connect to the master instead of listening (dual end point): tcp://host[:port] or tls://host[:port] (ports default to 20000, and 19999 for tls); reconnects whenever the connection ends | `--dial` |  |
+| **DNP3CTL_DIAL_SOURCE_ADDRESS** | string | **server start**: With --dial: local IP address to connect to the master from (default: chosen by the operating system) | `--dial-source-address` |  |
 | **DNP3CTL_DISCOVER_FORCE_LARGE** | bool | **discover**: Allow a scan of more hosts than the built-in safety cap | `--force-large-scan` |  |
 | **DNP3CTL_DUAL_ENDPOINT** | string | **client monitor**: Also take the connections the outstation establishes, on this address (host:port or :port), while connecting to it as well (TCP dual end point; the master's own connection has priority); not with --listen, udp:// or serial:// | `--dual-endpoint` |  |
 | **DNP3CTL_DUAL_ENDPOINT_ALLOW** | strings | **client monitor**: With --dual-endpoint: only take connections from these addresses or CIDR prefixes (default: any) | `--dual-endpoint-allow` |  |
@@ -854,6 +858,9 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_QUEUE_LIMIT** | uint16 | **client monitor**: Requests that may wait for their turn, polls and automatic tasks (0 = 64) | `--queue-limit` |  |
 | **DNP3CTL_RANGE** | string | **client read**: Point indexes to read: a range (0-9), a list (1,4,7) or empty for all points; **client assign-class**, **client freeze**: Point indexes: a range (0-9), a list (1,4,7) or empty for all points | `--range` |  |
 | **DNP3CTL_RECONNECT_JITTER** | uint8 | **client monitor**: Randomize each delay before a reconnect by up to this percentage, 0-100, so that masters that lost their connections together do not reconnect together (0 = exact doubling) | `--reconnect-jitter` |  |
+| **DNP3CTL_REDIAL_JITTER** | uint8 | **server start**: With --dial: randomize each delay between attempts by up to this percentage, 0-100, so that outstations that lost their connections together do not reconnect together (0 = exact doubling) | `--redial-jitter` |  |
+| **DNP3CTL_REDIAL_MAX_DELAY** | uint32 | **server start**: With --dial: the longest delay between attempts, in milliseconds (0 = 60000) | `--redial-max-delay` |  |
+| **DNP3CTL_REDIAL_MIN_DELAY** | uint32 | **server start**: With --dial: milliseconds before the first new attempt after a failed or ended connection, doubling after each further failure (0 = 1000) | `--redial-min-delay` |  |
 | **DNP3CTL_RESPONSE_TIMEOUT** | uint32 | Wait in milliseconds for each fragment of a response (0 = 5000) | `--response-timeout` |  |
 | **DNP3CTL_RESTART_TYPE** | string | **client restart**: Restart: cold (full restart of the outstation) or warm (restart of the DNP3 application) | `--type` |  |
 | **DNP3CTL_RETRIES** | uint8 | Retries of a request that timed out or lost its connection; only for requests that are safe to repeat (reads, time, unsolicited control, assign class, file reads), never for controls, freezes, restarts or writes | `--retries` |  |
@@ -875,6 +882,7 @@ dnp3ctl client read --object g30v5
 | **DNP3CTL_SA_UPDATE_KEY_FILE** | string | every client command, **server start**: File holding the update key of Secure Authentication v5, 16 or 32 octets as hex (or set DNP3CTL_SA_UPDATE_KEY); enables secure authentication with session key change | `--sa-update-key-file` |  |
 | **DNP3CTL_SA_USER** | uint16 | every client command, **server start**: Secure authentication user number | `--sa-user` | 1 |
 | **DNP3CTL_SERIAL** | string | **server start**: Serve on this serial port (e.g. /dev/ttyUSB0 or COM3) instead of the network; line settings with --baud, --data-bits, --parity, --stop-bits | `--serial` |  |
+| **DNP3CTL_SOURCE_ADDRESS** | string | Local IP address to connect from, over tcp://, tls:// and udp:// (default: chosen by the operating system), for a host with several interfaces or an outstation that accepts known master addresses only | `--source-address` |  |
 | **DNP3CTL_STOP_BITS** | uint8 | every client command, **server start**: Serial stop bits, 1 or 2 (0 = 1) | `--stop-bits` |  |
 | **DNP3CTL_SUBNETS** | strings | **discover**: Subnets, ranges or addresses to probe: CIDR (192.168.1.0/24), range (192.168.1.10-20) or a single address; comma-separated | `--subnets` |  |
 | **DNP3CTL_TIME** | string | **client time-sync**: Time to write with --method write: now, or an RFC 3339 time such as 2026-01-31T12:00:00Z | `--time` |  |
@@ -961,7 +969,7 @@ Pass `--format json` (or set `DNP3CTL_FORMAT=json`). Progress goes to stderr, th
 
 Every master and outstation feature of go-dnp3 has a command or a flag, with these exceptions:
 
-- **`client.WithDialer`** (a caller-supplied dialer of TCP connections): a command-line tool has no dialer to supply; dnp3ctl leaves TCP and TLS dialing to go-dnp3, and `--udp-local-port` and `--listen` cover the source port and the connections the outstation makes.
+- **`client.WithDialer`, `client.UDPWithDialer` and `server.WithDialer`** take any dialer, a proxy's or a jump host's for example; dnp3ctl uses them to bind a source address (`--source-address`, `--dial-source-address`) and supplies no other dialer: a command-line tool has no proxy configuration of its own to hand them.
 - **`server.ServeByMasterIP`** (routing connections to outstations by the master's IP address): the outstations of one `server start` are told apart by their link addresses (`--config` several times); `--master-ips` restricts the masters of all of them.
 - **`client.WithKeyChangeInterval(0)`** (session key changes by count only): `--sa-key-change-interval 0` means the default of 900 seconds.
 

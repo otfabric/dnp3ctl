@@ -189,6 +189,10 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 	if len(masterIPs) > 0 && cfg.Serial != "" {
 		return nil, fmt.Errorf("--master-ips does not apply to --serial")
 	}
+	redial, source, err := redialSettings(cfg)
+	if err != nil {
+		return nil, err
+	}
 	c, t, r, k := dnp.LinkSettings(cfg.LinkConfig)
 	return &plan{models: models, allow: allow, peer: peer, dial: dial, fixed: cfg.UDPFixed, opts: Options{
 		Link: server.Link{Confirmed: c, Timeout: t, Retries: r, KeepAlive: k}, Auth: user, TLS: tc, MaxConnections: int(cfg.MaxSessions),
@@ -197,7 +201,30 @@ func check(cfg *config.ServerConfig) (*plan, error) {
 		ExpectedKeyChangeCount: cfg.SAExpectedKeyCount, MaxKeyStatusRequests: int(cfg.SAMaxKeyStatus),
 		MasterIPs: masterIPs, MaxControls: int(cfg.MaxControls), MaxTxFragment: int(cfg.MaxTxFragment), MaxRxFragment: int(cfg.MaxRxFragment),
 		DeadbandIntegerOnly: cfg.DeadbandIntegerOnly, FileTimeout: time.Duration(cfg.FileTimeout) * time.Second, FileTimeoutClass: cfg.FileTimeoutClass,
+		Redial: redial, DialSource: source,
 	}}, nil
+}
+
+// redialSettings are the backoff and the source address of --dial.
+func redialSettings(cfg *config.ServerConfig) (server.Redial, netip.Addr, error) {
+	source, err := dnp.ParseSourceAddress("--dial-source-address", cfg.DialSourceAddress)
+	if err != nil {
+		return server.Redial{}, netip.Addr{}, err
+	}
+	if cfg.Dial == "" && (source.IsValid() || cfg.RedialMinDelay != 0 || cfg.RedialMaxDelay != 0 || cfg.RedialJitter != 0) {
+		return server.Redial{}, netip.Addr{}, fmt.Errorf("--dial-source-address and the --redial flags need --dial")
+	}
+	if cfg.RedialJitter > 100 {
+		return server.Redial{}, netip.Addr{}, fmt.Errorf("invalid --redial-jitter %d: use a percentage, 0-100", cfg.RedialJitter)
+	}
+	if cfg.RedialMinDelay != 0 && cfg.RedialMaxDelay != 0 && cfg.RedialMaxDelay < cfg.RedialMinDelay {
+		return server.Redial{}, netip.Addr{}, fmt.Errorf("--redial-max-delay %d is below --redial-min-delay %d", cfg.RedialMaxDelay, cfg.RedialMinDelay)
+	}
+	return server.Redial{
+		MinDelay: time.Duration(cfg.RedialMinDelay) * time.Millisecond,
+		MaxDelay: time.Duration(cfg.RedialMaxDelay) * time.Millisecond,
+		Jitter:   float64(cfg.RedialJitter) / 100,
+	}, source, nil
 }
 
 // minFragment is the smallest fragment IEEE 1815-2012 clause 4.3 allows a device to be

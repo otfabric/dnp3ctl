@@ -316,3 +316,58 @@ func TestSecretFileWarning(t *testing.T) {
 	cli(t, st, "file", "ls", "--file-user", "operator", "--file-password-file", pw, "--sa-update-key-file", tight).want(t, 6).
 		errHas(t, "warning: the file password file "+pw+" is accessible to other users (mode 0640)")
 }
+
+// --source-address binds the connections of the master; --dial-source-address and the
+// --redial flags shape the connections of `server start --dial`.
+func TestSourceAddressAndRedial(t *testing.T) {
+	st := stationtest.Start(t, stationtest.Model)
+	cli(t, st, "poll", "--source-address", "127.0.0.1").want(t, 0).has(t, "12 objects")
+	// An address of no interface of this host: the bind fails, so the dialer is used.
+	if r := cli(t, st, "poll", "--source-address", "192.0.2.1", "--timeout", "2000"); r.code == 0 || r.code == 3 {
+		t.Errorf("poll from 192.0.2.1: exit %d\n%s", r.code, r.stderr)
+	}
+	cli(t, st, "poll", "--source-address", "nope").want(t, 3).errHas(t, "invalid --source-address")
+	cli(t, st, "poll", "--source-address", "127.0.0.1:20000").want(t, 3).errHas(t, "without a port")
+	run(t, "client", "poll", "--listen", "127.0.0.1", "--port", itoa(stationtest.FreePort(t)), "--source-address", "127.0.0.1").want(t, 3).errHas(t, "--source-address needs")
+	run(t, "client", "poll", "--url", "serial:///dev/null", "--source-address", "127.0.0.1").want(t, 3).errHas(t, "--source-address needs")
+
+	t.Run("UDP", func(t *testing.T) {
+		port := itoa(stationtest.FreePort(t))
+		stop := background(t, "server", "start", "--udp", "--listen", "127.0.0.1", "--port", port)
+		deadline := time.Now().Add(5 * time.Second)
+		var r result
+		for time.Now().Before(deadline) {
+			r = run(t, "client", "poll", "--url", "udp://127.0.0.1:"+port, "--source-address", "127.0.0.1", "--timeout", "1000")
+			if r.code == 0 {
+				break
+			}
+		}
+		if r.code != 0 {
+			t.Errorf("UDP poll from 127.0.0.1: %d\n%s", r.code, r.stderr)
+		}
+		stop()
+	})
+
+	t.Run("dial", func(t *testing.T) {
+		port := itoa(stationtest.FreePort(t))
+		stop := background(t, "server", "start", "--dial", "tcp://127.0.0.1:"+port, "--dial-source-address", "127.0.0.1",
+			"--redial-min-delay", "50", "--redial-max-delay", "200", "--redial-jitter", "50")
+		run(t, "client", "poll", "--listen", "127.0.0.1", "--port", port, "--timeout", "5000").want(t, 0).has(t, "14 objects")
+		// The outstation connects again, after the redial delay, for the next command.
+		run(t, "client", "poll", "--listen", "127.0.0.1", "--port", port, "--timeout", "5000").want(t, 0)
+		stop().want(t, 0)
+	})
+
+	for _, c := range []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"--redial-jitter", "10"}, "need --dial"},
+		{[]string{"--dial-source-address", "127.0.0.1"}, "need --dial"},
+		{[]string{"--dial", "tcp://127.0.0.1", "--redial-jitter", "101"}, "0-100"},
+		{[]string{"--dial", "tcp://127.0.0.1", "--redial-min-delay", "500", "--redial-max-delay", "100"}, "below --redial-min-delay"},
+		{[]string{"--dial", "tcp://127.0.0.1", "--dial-source-address", "host"}, "invalid --dial-source-address"},
+	} {
+		run(t, append([]string{"server", "start"}, c.args...)...).want(t, 3).errHas(t, c.msg)
+	}
+}

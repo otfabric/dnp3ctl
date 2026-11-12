@@ -250,3 +250,20 @@ func TestSecretFileWarning(t *testing.T) {
 	}
 	restoreSecond()
 }
+
+func TestParseSourceAddress(t *testing.T) {
+	for in, want := range map[string]string{"": "invalid IP", "127.0.0.1": "127.0.0.1", " ::1 ": "::1", "::ffff:10.0.0.1": "10.0.0.1", "fe80::1%en0": "fe80::1%en0"} {
+		a, err := ParseSourceAddress("--source-address", in)
+		if err != nil || a.String() != want {
+			t.Errorf("%q: %v, %v", in, a, err)
+		}
+	}
+	for _, in := range []string{"x", "1.2.3.4:5", "10.0.0.0/8"} {
+		if _, err := ParseSourceAddress("--source-address", in); err == nil {
+			t.Errorf("%q accepted", in)
+		}
+	}
+	if d := SourceDialer(netip.MustParseAddr("127.0.0.1")); d.Timeout != dialTimeout || d.LocalAddr.String() != "127.0.0.1:0" {
+		t.Errorf("dialer %+v", d)
+	}
+}

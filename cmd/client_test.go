@@ -5,14 +5,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/hex"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	dnp3 "github.com/otfabric/go-dnp3"
 	"github.com/otfabric/go-dnp3/app"
 	"github.com/otfabric/go-dnp3/secauth"
 	"github.com/otfabric/go-dnp3/server"
@@ -524,7 +527,10 @@ func TestMonitor(t *testing.T) {
 		}
 	})
 	t.Run("outstation restart", func(t *testing.T) {
-		other := stationtest.Start(t, stationtest.Model)
+		// The restart below must come after the master has the response that clears
+		// DEVICE_RESTART: otherwise the master never sees IIN1.7 newly set.
+		cleared := &clearedRestart{}
+		other := stationtest.Start(t, stationtest.Model, func(o *station.Options) { o.Metrics = cleared })
 		enables := func() int {
 			n := 0
 			for _, e := range other.Events() {
@@ -537,14 +543,7 @@ func TestMonitor(t *testing.T) {
 		done := make(chan result, 1)
 		go func() { done <- cli(t, other, "monitor", "--object", "g32", "--count", "1", "--format", "json") }()
 		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() == 1 })
-		eventually(t, "DEVICE_RESTART to be cleared", func() bool {
-			for _, e := range other.Events() {
-				if e.Function == "WRITE" {
-					return true
-				}
-			}
-			return false
-		})
+		eventually(t, "DEVICE_RESTART to be cleared", cleared.Load)
 		// After a restart the outstation has forgotten the enabled classes: the master's
 		// restart procedure enables them again, and events keep coming.
 		other.Server().Restart()
@@ -1021,4 +1020,17 @@ func TestManagementRestartAndDeadbands(t *testing.T) {
 	t.Run("debug log", func(t *testing.T) {
 		cli(t, st, "--debug", "read", "--object", "g1v2").want(t, 0).errHas(t, "debug: log ", "msg=connected", "component=dnp3.client")
 	})
+}
+
+// clearedRestart records that the outstation sent a response without DEVICE_RESTART
+// (IIN1.7): the response to the master's WRITE that cleared it.
+type clearedRestart struct {
+	dnp3.NopMetrics
+	atomic.Bool
+}
+
+func (c *clearedRestart) OnFragmentSent(_ net.Addr, f *app.Fragment, _ int) {
+	if f.Function == app.FuncResponse && f.IIN&app.IINDeviceRestart == 0 {
+		c.Store(true)
+	}
 }

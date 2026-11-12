@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -296,11 +297,37 @@ func OpenSerial(sc serial.Config) (io.ReadWriteCloser, net.Addr, error) {
 
 // UDPOpener returns a stream opener for DNP3 over UDP to addr, sending from localPort (0
 // for any free port). Every link frame travels in a datagram, as with client.UDP.
-func UDPOpener(addr string, localPort uint16) client.StreamOpener {
-	if localPort == 0 {
+func UDPOpener(addr string, source netip.Addr, localPort uint16) client.StreamOpener {
+	if !source.IsValid() && localPort == 0 {
 		return client.UDP(addr)
 	}
-	return client.UDPFrom(net.JoinHostPort("", strconv.Itoa(int(localPort))), addr)
+	local := &net.UDPAddr{Port: int(localPort)}
+	if source.IsValid() {
+		local.IP, local.Zone = source.AsSlice(), source.Zone()
+	}
+	return client.UDPWithDialer(&net.Dialer{LocalAddr: local}, addr)
+}
+
+// dialTimeout is go-dnp3's TCP dial timeout, kept when --source-address replaces its dialer.
+const dialTimeout = 10 * time.Second
+
+// SourceDialer is the TCP dialer of a source address: connections leave from source, on a
+// port the operating system chooses.
+func SourceDialer(source netip.Addr) *net.Dialer {
+	return &net.Dialer{Timeout: dialTimeout, LocalAddr: &net.TCPAddr{IP: source.AsSlice(), Zone: source.Zone()}}
+}
+
+// ParseSourceAddress parses the IP address of flag; an empty s is the invalid netip.Addr,
+// letting the operating system choose.
+func ParseSourceAddress(flag, s string) (netip.Addr, error) {
+	if s == "" {
+		return netip.Addr{}, nil
+	}
+	a, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, errs.InvalidInput(errs.CodeInvalidInput, fmt.Sprintf("invalid %s %q: use an IP address, without a port", flag, s), err)
+	}
+	return a.Unmap(), nil
 }
 
 // acceptor is the listener of --listen: it waits for the outstation to connect, again
@@ -459,6 +486,17 @@ func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, erro
 	if cfg.NoSolicitedConfirm {
 		opts = append(opts, client.WithSolicitedConfirm(false))
 	}
+	source, err := ParseSourceAddress("--source-address", cfg.SourceAddress)
+	if err != nil {
+		return target, nil, err
+	}
+	if source.IsValid() && (target.Listen || target.Scheme == config.SchemeSerial) {
+		return target, nil, errs.InvalidInput(errs.CodeInvalidFlagCombination, fmt.Sprintf("--source-address needs a tcp://, tls:// or udp:// URL that dnp3ctl connects to; the target is %s", target), nil)
+	}
+	if source.IsValid() && target.Scheme != config.SchemeUDP {
+		// The dialer also opens the client's connections of --dual-endpoint.
+		opts = append(opts, client.WithDialer(SourceDialer(source)))
+	}
 	switch {
 	case target.Listen:
 		// The stream opener waits on the listener, which Open creates.
@@ -469,7 +507,7 @@ func targetOptions(cfg *config.ConnConfig) (config.Target, []client.Option, erro
 		}
 		opts = append(opts, client.WithTLS(tc))
 	case target.Scheme == config.SchemeUDP:
-		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), cfg.UDPLocalPort)))
+		opts = append(opts, client.WithStream(UDPOpener(target.Addr(), source, cfg.UDPLocalPort)))
 	case target.Scheme == config.SchemeSerial:
 		sc, err := SerialSettings(target.Device, cfg.SerialConfig)
 		if err != nil {
