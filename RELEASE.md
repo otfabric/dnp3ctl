@@ -1,5 +1,18 @@
 # dnp3ctl Releases
 
+## v0.13.2
+
+**Date:** 2026-11-14
+**Previous release:** v0.13.1
+
+No change to the command's options or output.
+
+### Changed
+
+- Built on go-dnp3 v1.13.1 (was v1.13.0). In that release an outstation counts a connection against `WithMaxConnections` from accept, also during its TLS handshake; the master holds at most 64 fragments for its handler and collects a directory listing of up to 16 MiB; `WithMaxControls` counts every point of a pattern control block; a control header without objects is answered with IIN2.2 (go-dnp3 RELEASE.md, v1.13.1).
+
+---
+
 ## v0.13.1
 
 **Date:** 2026-11-12
