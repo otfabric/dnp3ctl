@@ -195,7 +195,7 @@ A written file appears in its directory and can be read back. A file may not gro
 |---------|--------|
 | READ of classes 0-3 (integrity, event and class polls) | the static data of class 0; the buffered events of classes 1-3, confirmed by the master and then removed |
 | READ of objects and ranges | the points, in the variation asked for or the static variation; PARAMETER_ERROR for indexes that do not exist, OBJECT_UNKNOWN for objects and variations the outstation does not support; a point type the model has no points of is answered with no objects |
-| SELECT, OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR | as described under `controls` |
+| SELECT, OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR | as described under `controls`; an OPERATE matches its SELECT only when its controls carry the same request statuses (otherwise NO_SELECT), and a control the SELECT marked NON_PARTICIPATING is not carried out |
 | WRITE g50v1, RECORD_CURRENT_TIME + WRITE g50v3, DELAY_MEASURE | sets the outstation's clock (logged as `time-sync`), clears NEED_TIME |
 | WRITE g80v1 index 7 | clears DEVICE_RESTART |
 | COLD_RESTART, WARM_RESTART | the delay of `restart_delay`, then the restart: DEVICE_RESTART is set again and the event buffers are cleared; or IIN2.0 without `restart_delay` |
@@ -204,8 +204,8 @@ A written file appears in its directory and can be read back. A file may not gro
 | READ of g34 | the deadbands of the analog inputs (their `deadband`) |
 | WRITE of g34 | sets the deadband of the analog inputs; PARAMETER_ERROR for an index that is not one |
 | INITIALIZE_DATA, INITIALIZE_APPL, START_APPL, STOP_APPL, SAVE_CONFIG, ACTIVATE_CONFIG | accepted and logged (`manage` event), unless `refused_functions` lists them |
-| FREEZE_AT_TIME | a freeze at a time to come, repeated at the interval when one is given; time 0 freezes at once. Up to 16 wait at once; a time that has passed, without an interval, is refused |
-| A broadcast (to 0xFFFD, 0xFFFE or 0xFFFF) | executed like the same request to the outstation, not answered; IIN1.0 BROADCAST is set in the next response. With secure authentication a critical broadcast is executed only in aggressive mode with a valid MAC, otherwise discarded |
+| FREEZE_AT_TIME | a freeze at a time to come, repeated at the interval when one is given (an interval below 100 ms is served at 100 ms); time 0 freezes at once. Up to 16 wait at once; a time that has passed, without an interval, is refused |
+| A broadcast (to 0xFFFD, 0xFFFE or 0xFFFF) | executed like the same request to the outstation, not answered; IIN1.0 BROADCAST is set in the next response. With secure authentication a critical broadcast is executed only in aggressive mode with a valid MAC, otherwise discarded; AUTHENTICATE_REQ sent to a broadcast address is discarded and counted, never answered |
 | IMMED_FREEZE, FREEZE_CLEAR (and their `_NR` forms) | copies counters into frozen counters and analog inputs into frozen analog inputs; FREEZE_CLEAR resets the counters |
 | READ / WRITE g0 | the attributes of `outstation.attributes` and of `attribute_sets`, and their lists (g0v255); writes as described under `attributes` and `attribute_sets` |
 | File transfer (g70) | serves `files`, lists directories, takes uploads with the time of creation the master gives (`client file put --created`), closes a file no request names for `--file-timeout` with a HANDLE_EXPIRED event |
