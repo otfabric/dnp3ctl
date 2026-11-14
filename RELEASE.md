@@ -1,5 +1,21 @@
 # dnp3ctl Releases
 
+## v0.14.0
+
+**Date:** 2026-11-14
+**Previous release:** v0.13.2
+
+Moves to go-dnp3 v1.14.0 (was v1.13.1). The command's options and output are unchanged; two new library bounds apply with their defaults.
+
+### Changed
+
+- Built on go-dnp3 v1.14.0 (go-dnp3 RELEASE.md, v1.14.0). For the tool this means:
+  - `station`: the outstation keeps one association per master address, at most the number of masters configured, or 16 when none are. A frame from a further master address is dropped and reported as a decode error.
+  - The client commands collect at most 16 MiB of one response, all its fragments counted; a longer response ends the request with a protocol error.
+  - A library callback that does not return normally is logged with its stack, and the station or client goes on as the library documents, instead of the tool ending.
+
+---
+
 ## v0.13.2
 
 **Date:** 2026-11-14
