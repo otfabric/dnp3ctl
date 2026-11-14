@@ -1,5 +1,25 @@
 # dnp3ctl Releases
 
+## v0.14.1
+
+**Date:** 2026-11-14
+**Previous release:** v0.14.0
+
+Moves to go-dnp3 v1.15.0 (was v1.14.0). The command's options and output are unchanged.
+
+### Changed
+
+- Built on go-dnp3 v1.15.0 (go-dnp3 RELEASE.md, v1.15.0). For the tool this means:
+  - The client commands count each response fragment as the larger of its octets and 48 octets per decoded object against the 16 MiB response bound and the handler queue, so a densely packed response (such as packed binary inputs) reaches the bound sooner.
+  - `client file get`: when the outstation announces the file's size, a transfer that goes beyond it fails with a protocol error and is aborted.
+  - `server start`: an OPERATE matches its SELECT only when its controls carry the same request statuses, else it is answered NO_SELECT; a control the SELECT marked NON_PARTICIPATING is not carried out.
+  - `server start`: a FREEZE_AT_TIME interval below 100 ms is served at 100 ms.
+  - `server start`: device attribute (g0), file block (g70v5), IIN (g80) and statistics (g121) headers of a READ count toward the READ object budget; headers beyond it are answered with IIN2.2.
+  - `server start`: AUTHENTICATE_REQ and AUTHENTICATE_REQ_NO_ACK sent to a broadcast address are discarded and counted, never answered.
+- README.md and docs/server-config.md describe these behaviours and name dnp3-interop v0.12.1, the harness go-dnp3 v1.15.0 is tested with.
+
+---
+
 ## v0.14.0
 
 **Date:** 2026-11-14
