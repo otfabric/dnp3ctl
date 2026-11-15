@@ -215,7 +215,8 @@ func Attributes(ctx context.Context, cfg *config.AttributesConfig, trace io.Writ
 
 // describeAttribute is the result form of the attribute v of set.
 func describeAttribute(set uint16, v uint8, a app.Attribute) types.Attribute {
-	return types.Attribute{Variation: v, Name: attributeName(set, v), DataType: a.Type.String(), Value: AttributeValue(a, set)}
+	value, nonFinite := types.Finite(AttributeValue(a, set))
+	return types.Attribute{Variation: v, Name: attributeName(set, v), DataType: a.Type.String(), Value: value, NonFinite: nonFinite}
 }
 
 // AttributeDataTypes describes the values of --data-type of `client write-attribute`.

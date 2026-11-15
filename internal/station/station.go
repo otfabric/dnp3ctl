@@ -98,6 +98,17 @@ type Station struct {
 	stop  chan struct{}
 	wg    sync.WaitGroup
 	mu    sync.Mutex // serializes the events of the log
+
+	restartMu sync.Mutex      // guards closed and pending, and orders wg.Add before Close's wg.Wait
+	closed    bool            // Close has begun: no restart is scheduled any more
+	pending   *pendingRestart // the restart a master asked for, until it is due
+}
+
+// pendingRestart is a cold or warm restart that is due at a time.
+type pendingRestart struct {
+	cold  bool
+	due   time.Time
+	timer *time.Timer
 }
 
 // control is a control of the model, resolved.
@@ -439,13 +450,19 @@ func (st *Station) ServeConn(rw io.ReadWriteCloser, remote net.Addr) error {
 	return st.srv.ServeConn(rw, remote)
 }
 
-// Close stops the simulations and the outstation.
+// Close stops the simulations, a pending restart and the outstation. A restart that is
+// being carried out ends first; none starts after Close begins.
 func (st *Station) Close() error {
-	select {
-	case <-st.stop:
-	default:
+	st.restartMu.Lock()
+	if !st.closed {
+		st.closed = true
 		close(st.stop)
+		if p := st.pending; p != nil && p.timer.Stop() {
+			st.pending = nil
+			st.wg.Done() // the timer's function will not run
+		}
 	}
+	st.restartMu.Unlock()
 	st.wg.Wait()
 	return st.srv.Close()
 }
@@ -461,6 +478,9 @@ func (st *Station) emit(e types.ServerEvent, own bool) {
 	if own && st.opts.Tag {
 		addr := st.model.Address()
 		e.Outstation = &addr
+	}
+	if v, nonFinite := types.Finite(e.Value); nonFinite != "" {
+		e.Value, e.NonFinite = v, nonFinite
 	}
 	e.Timestamp = st.opts.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
 	st.mu.Lock()
@@ -492,7 +512,8 @@ func (h *handler) check(c server.Command) (*control, app.CommandStatus) {
 			return ctl, app.StatusNotSupported // pattern control blocks are not simulated
 		}
 	case app.AnalogOutput:
-		if (ctl.spec.Min != nil && v.Value < *ctl.spec.Min) || (ctl.spec.Max != nil && v.Value > *ctl.spec.Max) {
+		// A value is in range when it compares within both bounds, which NaN never does.
+		if (ctl.spec.Min != nil && !(v.Value >= *ctl.spec.Min)) || (ctl.spec.Max != nil && !(v.Value <= *ctl.spec.Max)) {
 			return ctl, app.StatusOutOfRange
 		}
 	}
@@ -568,31 +589,71 @@ func (h *handler) apply(ctl *control, c server.Command) string {
 	return ""
 }
 
-// Restart implements server.RestartHandler.
+// Restart implements server.RestartHandler. There is at most one pending restart: a
+// request while one is pending is answered with the time left, and a cold request makes a
+// pending warm restart cold.
 func (h *handler) Restart(_ context.Context, cold bool) (time.Duration, error) {
-	kind := "warm"
-	if cold {
-		kind = "cold"
-	}
-	delay := time.Duration(h.st.model.Outstation.RestartDelay)
+	return h.st.scheduleRestart(cold)
+}
+
+func (st *Station) scheduleRestart(cold bool) (time.Duration, error) {
+	kind := restartKind(cold)
+	delay := time.Duration(st.model.Outstation.RestartDelay)
 	if delay == 0 {
-		h.st.event(types.ServerEvent{Event: "restart", Detail: kind + " restart refused: the model has no restart_delay"})
+		st.event(types.ServerEvent{Event: "restart", Detail: kind + " restart refused: the model has no restart_delay"})
 		return 0, errors.New("restarts are not enabled")
 	}
-	h.st.event(types.ServerEvent{Event: "restart", Detail: fmt.Sprintf("%s restart in %s", kind, delay)})
-	h.st.wg.Go(func() {
-		select {
-		case <-h.st.stop:
-			return
-		case <-time.After(delay):
+	st.restartMu.Lock()
+	if st.closed {
+		st.restartMu.Unlock()
+		st.event(types.ServerEvent{Event: "restart", Detail: kind + " restart refused: the outstation is stopping"})
+		return 0, errors.New("the outstation is stopping")
+	}
+	if p := st.pending; p != nil {
+		upgraded := cold && !p.cold
+		p.cold = p.cold || cold
+		left := max(time.Until(p.due), 0)
+		due := restartKind(p.cold)
+		st.restartMu.Unlock()
+		detail := fmt.Sprintf("%s restart requested: the pending %s restart is due in %s", kind, due, left)
+		if upgraded {
+			detail = fmt.Sprintf("cold restart requested: the pending restart is now cold, due in %s", left)
 		}
-		if cold {
-			_ = h.st.load(true)
-		}
-		h.st.srv.Restart()
-		h.st.event(types.ServerEvent{Event: "restart", Detail: kind + " restart done"})
-	})
+		st.event(types.ServerEvent{Event: "restart", Detail: detail})
+		return left, nil
+	}
+	p := &pendingRestart{cold: cold, due: time.Now().Add(delay)}
+	st.wg.Add(1)
+	p.timer = time.AfterFunc(delay, func() { st.restartDue(p) })
+	st.pending = p
+	st.restartMu.Unlock()
+	st.event(types.ServerEvent{Event: "restart", Detail: fmt.Sprintf("%s restart in %s", kind, delay)})
 	return delay, nil
+}
+
+// restartDue carries out the pending restart p, unless Close came first.
+func (st *Station) restartDue(p *pendingRestart) {
+	defer st.wg.Done()
+	st.restartMu.Lock()
+	if st.closed || st.pending != p {
+		st.restartMu.Unlock()
+		return
+	}
+	st.pending = nil
+	cold := p.cold
+	st.restartMu.Unlock()
+	if cold {
+		_ = st.load(true)
+	}
+	st.srv.Restart()
+	st.event(types.ServerEvent{Event: "restart", Detail: restartKind(cold) + " restart done"})
+}
+
+func restartKind(cold bool) string {
+	if cold {
+		return "cold"
+	}
+	return "warm"
 }
 
 // SetTime implements server.TimeHandler.

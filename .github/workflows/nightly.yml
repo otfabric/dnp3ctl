@@ -1,0 +1,29 @@
+# Extended tier (otfabric/engineering standards/testing.md#ci-tiers): the end-to-end suite
+# of the binary. `make e2e` builds bin/dnp3ctl and runs it as a process against the
+# simulated outstation, so it tests what the in-process tests of cmd/ do not: main, the
+# exit codes of the process and the signal handling of `server start`. It runs on a
+# schedule and on dispatch, not on every pull request.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: End-to-end tests of the binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: make e2e
+        env:
+          GOWORK: "off"
+        run: make e2e

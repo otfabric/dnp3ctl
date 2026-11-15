@@ -56,6 +56,11 @@ be combined with secure authentication: an outstation running SAv5 executes a br
 control only with an aggressive mode MAC over an earlier challenge of the same connection,
 and every dnp3ctl command opens a new connection.
 
+--outstation on the command line wins over DNP3CTL_BROADCAST: the control goes to that
+outstation only, and stderr says so. --broadcast and --outstation both on the command line
+are refused (exit code 3). A notice on stderr names every one of --broadcast, --op, --mode
+and --value that is taken from the environment.
+
 A control the outstation refuses (a status other than SUCCESS, such as NO_SELECT, LOCAL or
 NOT_SUPPORTED) ends with exit code 6; a missing response with 5, after which the control
 may or may not have been executed.`,
@@ -97,7 +102,12 @@ may or may not have been executed.`,
 	}
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
-			func() error { return dnp.CheckOperate(&cfg) },
+			func() error {
+				if err := controlFromEnvironment(cmd, &cfg.Broadcast, "op", "mode", "value"); err != nil {
+					return err
+				}
+				return dnp.CheckOperate(&cfg)
+			},
 			func(ctx context.Context) (any, error) { return dnp.Operate(ctx, &cfg, cmd.ErrOrStderr()) },
 			runner.WithSuccessExit(partialExit))
 	}

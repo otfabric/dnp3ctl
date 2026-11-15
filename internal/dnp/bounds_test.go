@@ -3,9 +3,13 @@
 package dnp
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 
+	"github.com/otfabric/go-dnp3/app"
+	"github.com/otfabric/go-dnp3/client"
 	"github.com/otfabric/go-dnp3/secauth"
 )
 
@@ -60,4 +64,24 @@ func ends(h []string) string {
 		return "[]"
 	}
 	return fmt.Sprintf("[%s .. %s]", h[0], h[len(h)-1])
+}
+
+// TestNonFiniteAttributesAndValues: a float attribute or a value that is NaN or infinite has
+// a nil value and its name in non_finite; the JSON of the results then encodes.
+func TestNonFiniteAttributesAndValues(t *testing.T) {
+	for _, c := range []struct {
+		v    float64
+		want string
+	}{{math.NaN(), "NaN"}, {math.Inf(1), "+Inf"}, {math.Inf(-1), "-Inf"}, {2.5, ""}} {
+		a := describeAttribute(1, 4, app.FloatAttribute(c.v))
+		m := ToMeasurement(client.Measurement{GV: app.G30V6, Index: 2, Value: app.Analog{Value: c.v, Flags: app.FlagOnline}})
+		for name, got := range map[string][2]any{"attribute": {a.Value, a.NonFinite}, "measurement": {m.Value, m.NonFinite}} {
+			if got[1] != c.want || (c.want != "") != (got[0] == nil) {
+				t.Errorf("%s of %v: value %v, non_finite %q", name, c.v, got[0], got[1])
+			}
+		}
+		if _, err := json.Marshal([]any{a, m}); err != nil {
+			t.Errorf("%v: %v", c.v, err)
+		}
+	}
 }

@@ -60,7 +60,7 @@ func (r *PollResult) MarshalTextOutput() (string, error) {
 	}
 	b.WriteString("\n")
 	if r.Error != nil {
-		_, _ = fmt.Fprintf(&b, "  error: %s\n", r.Error.Message)
+		_, _ = fmt.Fprintf(&b, "  error: %s\n", Printable(r.Error.Message))
 	}
 	measurementLines(&b, r.Measurements)
 	return b.String(), nil
@@ -357,7 +357,7 @@ type PingSample struct {
 // MarshalTextOutput implements format.TextMarshaler.
 func (s *PingSample) MarshalTextOutput() (string, error) {
 	if s.Error != nil {
-		return fmt.Sprintf("%s  seq=%d  error: %s", s.Timestamp, s.Seq, s.Error.Message), nil
+		return fmt.Sprintf("%s  seq=%d  error: %s", s.Timestamp, s.Seq, Printable(s.Error.Message)), nil
 	}
 	return fmt.Sprintf("%s  seq=%d  rtt=%.2f ms  processing=%.0f ms", s.Timestamp, s.Seq, s.RTTMs, s.ProcessingMs), nil
 }
@@ -373,7 +373,7 @@ func (s *PingSample) TableRows() [][]string {
 	if s.Error != nil {
 		rtt, proc = "-", "-"
 	}
-	return [][]string{{s.Timestamp, strconv.FormatUint(uint64(s.Seq), 10), rtt, proc, ErrorMessage(s.Error)}}
+	return [][]string{{s.Timestamp, strconv.FormatUint(uint64(s.Seq), 10), rtt, proc, Printable(ErrorMessage(s.Error))}}
 }
 
 // PingSummary is printed to stderr when `client ping` ends.
@@ -412,6 +412,9 @@ type Attribute struct {
 	// Value is a string, a number or, for the list of attribute variations, an array of
 	// {variation, name, writable}.
 	Value any `json:"value"`
+	// NonFinite names a number that JSON cannot hold, "NaN", "+Inf" or "-Inf"; Value is
+	// then nil.
+	NonFinite string `json:"non_finite,omitempty"`
 }
 
 // AttributeListEntry is one entry of the list of attribute variations.
@@ -432,6 +435,9 @@ type AttributesResult struct {
 }
 
 func (a Attribute) valueText() string {
+	if a.Value == nil && a.NonFinite != "" {
+		return a.NonFinite
+	}
 	switch v := a.Value.(type) {
 	case []AttributeListEntry:
 		parts := make([]string, 0, len(v))
@@ -445,8 +451,10 @@ func (a Attribute) valueText() string {
 		return strings.Join(parts, " ")
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
+	case string:
+		return Printable(v)
 	default:
-		return fmt.Sprint(v)
+		return Printable(fmt.Sprint(v))
 	}
 }
 
@@ -489,11 +497,11 @@ type FileEntry struct {
 }
 
 func (e FileEntry) line() string {
-	return fmt.Sprintf("%s %-9s %10d  %-24s  %s", e.Permissions, e.Type, e.Size, orDash(e.Created), e.Name)
+	return fmt.Sprintf("%s %-9s %10d  %-24s  %s", e.Permissions, e.Type, e.Size, orDash(e.Created), Printable(e.Name))
 }
 
 func (e FileEntry) row() []string {
-	return []string{e.Name, e.Type, strconv.FormatUint(uint64(e.Size), 10), orDash(e.Created), e.Permissions}
+	return []string{Printable(e.Name), e.Type, strconv.FormatUint(uint64(e.Size), 10), orDash(e.Created), e.Permissions}
 }
 
 var fileHeaders = []string{"NAME", "TYPE", "SIZE", "CREATED", "PERMISSIONS"}
@@ -706,38 +714,37 @@ type ServerEvent struct {
 	Object string  `json:"object,omitempty"`
 	Index  *uint32 `json:"index,omitempty"`
 	Value  any     `json:"value,omitempty"`
+	// NonFinite names a value that JSON cannot hold, "NaN", "+Inf" or "-Inf", in place of
+	// Value.
+	NonFinite string `json:"non_finite,omitempty"`
 	// Status is the command status a control was answered with.
 	Status string `json:"status,omitempty"`
 	Detail string `json:"detail,omitempty"`
 }
 
-// MarshalTextOutput implements format.TextMarshaler.
+// MarshalTextOutput implements format.TextMarshaler. Strings a peer sent, an attribute or
+// a file name, are written with [Printable].
 func (e *ServerEvent) MarshalTextOutput() (string, error) {
 	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "%s  %-16s", e.Timestamp, e.Event)
+	_, _ = fmt.Fprintf(&b, "%s  %-16s", e.Timestamp, Printable(e.Event))
 	if e.Outstation != nil {
 		_, _ = fmt.Fprintf(&b, "  [%d]", *e.Outstation)
 	}
-	if e.Remote != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", e.Remote)
-	}
-	if e.Function != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", e.Function)
-	}
-	if e.Object != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", e.Object)
+	for _, s := range []string{e.Remote, e.Function, e.Object} {
+		if s != "" {
+			_, _ = fmt.Fprintf(&b, "  %s", Printable(s))
+		}
 	}
 	if e.Index != nil {
 		_, _ = fmt.Fprintf(&b, " index=%d", *e.Index)
 	}
-	if e.Value != nil {
-		_, _ = fmt.Fprintf(&b, "  %s", valueText(e.Value))
+	if e.Value != nil || e.NonFinite != "" {
+		_, _ = fmt.Fprintf(&b, "  %s", e.valueText())
 	}
-	if e.Status != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", e.Status)
-	}
-	if e.Detail != "" {
-		_, _ = fmt.Fprintf(&b, "  %s", e.Detail)
+	for _, s := range []string{e.Status, e.Detail} {
+		if s != "" {
+			_, _ = fmt.Fprintf(&b, "  %s", Printable(s))
+		}
 	}
 	return b.String(), nil
 }
@@ -756,14 +763,15 @@ func (e *ServerEvent) TableRows() [][]string {
 	if e.Index != nil {
 		index = strconv.FormatUint(uint64(*e.Index), 10)
 	}
-	if e.Value != nil {
-		value = valueText(e.Value)
+	if e.Value != nil || e.NonFinite != "" {
+		value = e.valueText()
 	}
-	return [][]string{{e.Timestamp, e.Event, outstation, e.Remote, e.Function, e.Object, index, value, e.Status, e.Detail}}
+	return [][]string{{e.Timestamp, Printable(e.Event), outstation, Printable(e.Remote), Printable(e.Function), Printable(e.Object), index, value,
+		Printable(e.Status), Printable(e.Detail)}}
 }
 
-func valueText(v any) string {
-	return Measurement{Value: v}.ValueText()
+func (e *ServerEvent) valueText() string {
+	return Measurement{Value: e.Value, NonFinite: e.NonFinite}.ValueText()
 }
 
 func joinInts(ns []int) string {

@@ -132,11 +132,26 @@ func readKey(file, env, name, fileFlag, envVar string) ([]byte, error) {
 	case raw == "":
 		return nil, nil
 	}
-	key, err := hex.DecodeString(strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimPrefix(raw, "0x"), "0X")), ""))
+	digits := strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimPrefix(raw, "0x"), "0X")), "")
+	key, err := hex.DecodeString(digits)
 	if err != nil || len(key) == 0 {
-		return nil, errs.InvalidInput(errs.CodeInvalidKey, fmt.Sprintf("the %s must be hex, for example 32 hex digits for a 16-octet key", name), err)
+		return nil, errs.InvalidInput(errs.CodeInvalidKey, fmt.Sprintf("the %s must be hex, for example 32 hex digits for a 16-octet key", name), keyDigitsError(digits, err))
 	}
 	return key, nil
+}
+
+// keyDigitsError says why the hex digits of a key do not decode, naming a position but no
+// character: the characters are the key, and the cause of an error is printed with --debug.
+func keyDigitsError(digits string, err error) error {
+	if err == nil {
+		return nil
+	}
+	for i := range len(digits) {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", rune(digits[i])) {
+			return fmt.Errorf("character %d of the hex digits (white space and a 0x prefix not counted) is not a hex digit", i+1)
+		}
+	}
+	return errors.New("an odd number of hex digits")
 }
 
 // SecureAuthUser returns the Secure Authentication user of cfg, or nil when secure

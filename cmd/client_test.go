@@ -289,23 +289,27 @@ func TestSystemRequests(t *testing.T) {
 		cli(t, st, "time-sync", "--method", "write", "--time", "yesterday").want(t, 3)
 	})
 	t.Run("restart", func(t *testing.T) {
-		var res types.ConfirmedResult
-		cli(t, st, "restart", "--type", "warm", "--format", "json").want(t, 0).decode(t, &res)
-		if res.Request != "warm-restart" || res.DelayMs == nil || *res.DelayMs != 1000 {
-			t.Errorf("warm: %+v", res)
-		}
-		cli(t, st, "restart", "--type", "cold").want(t, 0).has(t, "cold-restart (poll again after 1000 ms)")
-		cli(t, st, "restart", "--type", "hot").want(t, 3)
-		run(t, "client", "restart", "--ip", "127.0.0.1").want(t, 2)
-		eventually(t, "the restart to be done", func() bool {
+		done := func() int {
 			n := 0
 			for _, e := range st.Events() {
 				if e.Event == "restart" && strings.Contains(e.Detail, "done") {
 					n++
 				}
 			}
-			return n == 2
-		})
+			return n
+		}
+		var res types.ConfirmedResult
+		cli(t, st, "restart", "--type", "warm", "--format", "json").want(t, 0).decode(t, &res)
+		if res.Request != "warm-restart" || res.DelayMs == nil || *res.DelayMs != 1000 {
+			t.Errorf("warm: %+v", res)
+		}
+		// A request while a restart is pending is answered with the time left: the next one
+		// waits until the warm restart is done.
+		eventually(t, "the warm restart to be done", func() bool { return done() == 1 })
+		cli(t, st, "restart", "--type", "cold").want(t, 0).has(t, "cold-restart (poll again after 1000 ms)")
+		cli(t, st, "restart", "--type", "hot").want(t, 3)
+		run(t, "client", "restart", "--ip", "127.0.0.1").want(t, 2)
+		eventually(t, "the restart to be done", func() bool { return done() == 2 })
 	})
 	t.Run("restart refused", func(t *testing.T) {
 		other := stationtest.Start(t, strings.Replace(stationtest.Model, "  restart_delay: 1s\n", "", 1))
@@ -496,33 +500,36 @@ func TestMonitor(t *testing.T) {
 		r.errHas(t, "monitor: connected", "3 values")
 	})
 	t.Run("unsolicited changes", func(t *testing.T) {
+		// An outstation of its own, so that its one ENABLE_UNSOLICITED is this monitor's, the
+		// last request of the startup. Without --integrity or --poll-interval the master reads
+		// nothing after it: a change made after the first record can only come unsolicited.
+		other := stationtest.Start(t, stationtest.Model)
 		enables := func() int {
 			n := 0
-			for _, e := range st.Events() {
+			for _, e := range other.Events() {
 				if e.Function == "ENABLE_UNSOLICITED" {
 					n++
 				}
 			}
 			return n
 		}
-		// The earlier subtests enabled unsolicited responses already: wait for this monitor's
-		// ENABLE_UNSOLICITED, the last step of its startup, after the integrity poll.
-		before := enables()
+		stdout := newLineBuffer()
 		done := make(chan result, 1)
 		go func() {
-			done <- cli(t, st, "monitor", "--object", "g32", "--count", "2", "--format", "json")
+			args := append(append([]string{"client", "monitor"}, target(other)...), "--object", "g32", "--count", "2", "--format", "json")
+			done <- runTo(t, stdout, args...)
 		}()
-		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() > before })
-		for i := range 2 {
-			_ = st.Server().Database().UpdateAnalogInput(1, app.Analog{Value: float64(100 + i), Flags: app.FlagOnline})
-			time.Sleep(50 * time.Millisecond)
+		eventually(t, "unsolicited responses to be enabled", func() bool { return enables() == 1 })
+		_ = other.Server().Database().UpdateAnalogInput(1, app.Analog{Value: 100, Flags: app.FlagOnline})
+		select {
+		case <-stdout.lines:
+		case r := <-done:
+			t.Fatalf("the monitor ended before the first change: %d\n%s\n%s", r.code, r.stdout, r.stderr)
 		}
+		_ = other.Server().Database().UpdateAnalogInput(1, app.Analog{Value: 101, Flags: app.FlagOnline})
 		r := (<-done).want(t, 0)
 		lines := r.lines(t)
-		// The station records ENABLE_UNSOLICITED once it handled it, which can be before
-		// the master finished its startup; under load the first change then reached the
-		// monitor in a solicited response. The second change, 50 ms later, is unsolicited.
-		if len(lines) != 2 || lines[1]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
+		if len(lines) != 2 || lines[0]["unsolicited"] != true || lines[1]["unsolicited"] != true || lines[0]["value"] != float64(100) || lines[1]["value"] != float64(101) {
 			t.Errorf("unsolicited: %v", lines)
 		}
 	})

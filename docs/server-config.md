@@ -2,7 +2,7 @@
 
 `dnp3ctl server start` serves the outstation a model file describes. The file is YAML, or JSON (which is YAML). `dnp3ctl server generate-config` writes a commented example (its `--format yaml|json` is the format of that file, not of a result, so it does not take `text` or `table`); this page is the reference.
 
-A field the model does not know is an error, and everything that is wrong with a model is reported at once, before the server listens.
+A field the model does not know is an error, and everything that is wrong with a model is reported at once, before the server listens. A model file holds at most 16 MiB (16 777 216 octets); a larger one is refused without being read in full.
 
 `--config` can be given several times (or with comma-separated files): every model is then an outstation of its own, and all of them are served behind the same port, serial line or UDP socket, as on a multi-drop line. Each answers at the `address` of its model, which must differ between the models, and keeps its own points, event buffers, controls, files and secure authentication state; a broadcast reaches every one. Options of the command (`--allow`, `--max-sessions`, secure authentication keys, link settings) apply to all of them. `--dial` and `--udp-peer` take a single model.
 
@@ -53,7 +53,7 @@ The file `./events.csv` must exist next to the model: a `path` that does not ope
 | `time_sync_interval` | Set IIN1.4 (NEED_TIME) at start and again after this interval (at least `1s`), so that masters synchronize the clock |
 | `select_timeout` | How long a SELECT stays valid for its OPERATE. Default `10s` |
 | `confirm_timeout` | How long the outstation waits for an application confirmation. Default `5s` |
-| `restart_delay` | The time a master is told to wait after a cold or warm restart. Without it restarts are refused (IIN2.0). A cold restart also puts every point back to its value in the model |
+| `restart_delay` | The time a master is told to wait after a cold or warm restart. Without it restarts are refused (IIN2.0). A cold restart also puts every point back to its value in the model. There is at most one pending restart: a request while one is pending is answered with the time left until it, a cold request makes a pending warm restart cold, and the outstation restarts once. A restart still pending when the server stops is not carried out |
 | `event_limit` | Events buffered per point type and master. Default 100; when a buffer is full the oldest event is dropped and IIN2.3 (EVENT_BUFFER_OVERFLOW) is set |
 | `attributes` | Device attributes of set 0 (group 0) as strings, by name or variation number: `manufacturer`, `product`, `software-version`, `hardware-version`, `serial-number`, `device-name`, `location`, `owner`, `user-id`, … (the names `dnp3ctl client attributes` shows). Of these, a master may write the user-assigned ones, `owner`, `location`, `user-id` and `device-name`, when the model gives them; other writes are refused with PARAMETER_ERROR |
 | `attribute_sets` | Further sets of device attributes; see below |
@@ -156,7 +156,7 @@ A change produces an event of the point's class (when it has one and the change 
 | `index` | The index of the output. Unique per type. Required |
 | `target` | The point that takes the commanded value: `{type, index}`. A crob sets a `binary-output` or `binary-input`, an analog control an `analog-output` or `analog-input`. Default: the `binary-output` (crob) or `analog-output` (analog) of the same index, when the model has one. Without a target the control is answered and nothing changes |
 | `select_required` | Refuse a direct operate with NO_SELECT: the output only operates with select-before-operate |
-| `min`, `max` | Analog controls: a set-point outside is refused with OUT_OF_RANGE |
+| `min`, `max` | Analog controls: a set-point outside is refused with OUT_OF_RANGE; so is a NaN set-point when either bound is given, as it is not within them |
 | `status` | Answer every control of this output with this status, without executing it: `LOCAL`, `NOT_SUPPORTED`, `HARDWARE_ERROR`, `BLOCKED`, … (the names of IEEE 1815-2012 Table 11-4). For testing how a master handles a refusal |
 | `name` | A description |
 
@@ -173,21 +173,23 @@ How the outstation handles a control:
 | Field | Meaning |
 |-------|---------|
 | `name` | The name masters use, a path such as `/logs/events.csv`. Required |
-| `path` | A file on disk, relative to the model file; a relative path cannot leave the model file's directory (through `..` or a symbolic link). An absolute path is read as written |
+| `path` | A regular file on disk, relative to the model file; a relative path cannot leave the model file's directory (through `..` or a symbolic link). An absolute path is read as written. A directory, a device or a FIFO is refused without being opened |
 | `content` | The content, as text |
-| `size` | That many octets of a repeating pattern |
+| `size` | That many octets of a repeating pattern, 0 to 4 294 967 295 |
 | `permissions` | Octal (`644`) or rwx form (`rw-r--r--`). Default `rw-r--r--` |
 
-Give exactly one of `path`, `content` and `size`. Directories are implied by the names: `/logs/events.csv` makes `/logs` a directory, which `client file ls --path /logs` lists. The root `/` lists the top level. Files are listed with the time the server started. The content of `path` files is read when the server starts.
+Give exactly one of `path`, `content` and `size`. Directories are implied by the names: `/logs/events.csv` makes `/logs` a directory, which `client file ls --path /logs` lists. The root `/` lists the top level. Files are listed with the time the server started. The content of `path` files is read when the server starts. A file holds at most 4 294 967 295 octets, the largest size a DNP3 file object holds: a larger `size`, `content` or file at `path` is an error of the model, found from its size before anything is read or made.
 
 ## `uploads`
 
 | Field | Meaning |
 |-------|---------|
 | `accept` | Take the files masters write (`client file put`), and let them delete files (`client file rm`). Without it both are refused with PERMISSION_DENIED |
-| `dir` | Also write files masters write to this directory (relative to the model file, created if missing), under their name; delete removes them again. Files are written and removed through an `os.Root` of the directory: nothing outside it, a symbolic link out of it included, is written or removed. Without it they are kept in memory |
+| `dir` | Also write files masters write to this directory (relative to the model file, created if missing), under their name; delete removes them again. Files are written and removed through an `os.Root` of the directory: nothing outside it, a symbolic link out of it included, is written or removed. Without it they are kept in memory only; with it in memory as well |
+| `max_files` | The most files masters may have written, those being written included. Default 64. Opening another name for writing is answered with PERMISSION_DENIED; writing a file again, and appending to it, does not add one. The files of the model do not count, until a master writes one of them |
+| `max_bytes` | The most octets the files masters wrote may hold together, those being written included. Default 67 108 864 (64 MiB). A write past it is answered with FILE_FATAL, and nothing of that file is kept; an append counts as the octets the file then holds |
 
-A written file appears in its directory and can be read back. A file may not grow past 4 294 967 295 octets, the largest size a DNP3 file object holds: a write or append past it is answered with FILE_FATAL, and nothing of that file is kept.
+A written file appears in its directory and can be read back. A file may not grow past 4 294 967 295 octets, the largest size a DNP3 file object holds: a write or append past it is answered with FILE_FATAL, and nothing of that file is kept. Deleting a file a master wrote makes room for another under `max_files` and `max_bytes`. Every refusal is logged as a `file` event.
 
 ## What the outstation answers
 
@@ -198,7 +200,7 @@ A written file appears in its directory and can be read back. A file may not gro
 | SELECT, OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR | as described under `controls`; an OPERATE matches its SELECT only when its controls carry the same request statuses (otherwise NO_SELECT), and a control the SELECT marked NON_PARTICIPATING is not carried out |
 | WRITE g50v1, RECORD_CURRENT_TIME + WRITE g50v3, DELAY_MEASURE | sets the outstation's clock (logged as `time-sync`), clears NEED_TIME |
 | WRITE g80v1 index 7 | clears DEVICE_RESTART |
-| COLD_RESTART, WARM_RESTART | the delay of `restart_delay`, then the restart: DEVICE_RESTART is set again and the event buffers are cleared; or IIN2.0 without `restart_delay` |
+| COLD_RESTART, WARM_RESTART | the delay of `restart_delay`, then the restart: DEVICE_RESTART is set again and the event buffers are cleared; or IIN2.0 without `restart_delay`. While a restart is pending, a request is answered with the time left and adds none (see `restart_delay`) |
 | ENABLE_UNSOLICITED, DISABLE_UNSOLICITED | per master |
 | ASSIGN_CLASS | changes the event class of the points |
 | READ of g34 | the deadbands of the analog inputs (their `deadband`) |

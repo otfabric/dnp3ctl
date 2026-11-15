@@ -555,6 +555,8 @@ dnp3ctl client operate --url serial:///dev/ttyUSB0 --type crob --index 3 --op tr
 
 A broadcast cannot be combined with Secure Authentication, and dnp3ctl refuses the combination (exit code 3). An outstation running SAv5 discards a critical request sent to a broadcast address (a control, a freeze) unless it carries an aggressive mode MAC. That MAC covers an earlier challenge of the same connection, and every dnp3ctl command opens a connection of its own, so its broadcast would be discarded without a word.
 
+`--outstation` on the command line wins over `DNP3CTL_BROADCAST`: the request goes to that outstation only, and stderr says that the variable was not used. `--broadcast` and `--outstation` both on the command line are refused (exit code 3) before anything is sent. `client operate` names on stderr each of `--broadcast`, `--op`, `--mode` and `--value` it takes from the environment (`notice: --op latch-on is taken from DNP3CTL_OP`), and `client freeze` does for `--broadcast`.
+
 #### Management functions, restart indication and deadbands
 
 ```console
@@ -698,10 +700,10 @@ What it does:
 
 - **Answers** integrity, event and class polls and reads of every point type, in any variation; keeps an **event buffer per master** that survives reconnects and is confirmed by the master.
 - **Reports unsolicited** the events of the classes a master enables, with confirmation and retries.
-- **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE; `status` answers every control with a refusal of your choice, to test a master. An output with `command_event_class` reports every executed control as a **command event** (g13, g43) with the commanded value and the status.
+- **Executes controls** on the point named as their `target`, with select-before-operate, direct operate and direct operate without acknowledgement. `select_required` refuses a direct operate with NO_SELECT; `min`/`max` refuse a set-point with OUT_OF_RANGE (a NaN one as well); `status` answers every control with a refusal of your choice, to test a master. An output with `command_event_class` reports every executed control as a **command event** (g13, g43) with the commanded value and the status.
 - **Serves times and intervals** (`time-and-interval` points, g50v4): a time with a repeat interval, such as a schedule, read by group and variation.
 - **Changes values by itself** where the model says `simulate` (`toggle`, `ramp`, `sine`, `random`, `count`), producing events of the point's class with the outstation's time.
-- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`), assign class, freezes (also scheduled with FREEZE_AT_TIME), reads of deadbands (g34), device attributes of set 0 and of further `attribute_sets` (with writable variations), writes of deadbands, the management functions (accepted, or refused where `refused_functions` lists them), broadcasts, and file transfer with uploads and appends. `indications` in the model (`local-control`, `device-trouble`, `config-corrupt`) sets LOCAL_CONTROL, DEVICE_TROUBLE or CONFIG_CORRUPT, to test how a master reacts.
+- **Answers** time synchronization, delay measurement, cold and warm restarts (with `restart_delay`; one at a time), assign class, freezes (also scheduled with FREEZE_AT_TIME), reads of deadbands (g34), device attributes of set 0 and of further `attribute_sets` (with writable variations), writes of deadbands, the management functions (accepted, or refused where `refused_functions` lists them), broadcasts, and file transfer with uploads and appends (up to `uploads.max_files` files of `uploads.max_bytes` octets together, by default 64 files of 64 MiB). `indications` in the model (`local-control`, `device-trouble`, `config-corrupt`) sets LOCAL_CONTROL, DEVICE_TROUBLE or CONFIG_CORRUPT, to test how a master reacts.
 - **With Secure Authentication** challenges critical requests, accepts aggressive mode, and keeps the **security statistics** per master (g121, events g122 in class 1 by default).
 
 Every event is written to stdout as it happens:
@@ -1016,6 +1018,7 @@ A toplevel `Makefile` is provided for convenience. Run **`make`** (or **`make he
 | **`make lint-ci`** | `compile`, **go vet**, **golangci-lint** (uses `.golangci.yml`) |
 | **`make vuln`** | **govulncheck** over the module and its dependencies |
 | **`make cross`** | Typecheck for 32-bit targets (linux/arm/v7 is a release target, where `int` has 32 bits) |
+| **`make e2e`** | Builds **`bin/dnp3ctl`** and runs the end-to-end suite of `e2e/` against the binary (process exit codes, signals); CI runs it nightly (`nightly.yml`) |
 | **`make fmt`** / **`fmt-check`** | Format with the gofmt of the Go version in `go.mod` (the one CI uses); `fmt-check` fails if that gofmt or the locally installed one would change any file |
 | **`make check`** | `fmt`, `fmt-check`, `lint`, `lint-ci`, `vet`, `cross`, `vuln`, `test`, **`coverage`** |
 | **`make build`** | Runs **`check`** then writes **`bin/dnp3ctl`** |

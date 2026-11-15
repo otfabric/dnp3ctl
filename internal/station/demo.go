@@ -114,8 +114,8 @@ files:
   - {name: /logs/events.csv, content: "time,event\n2026-01-01T00:00:00Z,started\n"}
   - {name: /records/disturbance-0001.dat, size: 8192}
 
-# Take the files masters write, and let them delete files. Add "dir: ./uploads" to keep them
-# on disk.
+# Take the files masters write, and let them delete files: by default up to 64 files of
+# 64 MiB together (max_files, max_bytes). Add "dir: ./uploads" to keep them on disk as well.
 uploads:
   accept: true
 `

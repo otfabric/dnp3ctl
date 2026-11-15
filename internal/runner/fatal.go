@@ -37,7 +37,9 @@ func fatalExitCode(err error) int {
 
 func writeFatalText(w io.Writer, err error, debug bool) {
 	info := errorInfoFromErr(err)
-	_, _ = fmt.Fprintf(w, "error: %s\n", info.Message)
+	// A message may hold the text of a peer: its control characters are escaped; its lines
+	// stay, as an invalid model lists its problems one per line.
+	_, _ = fmt.Fprintf(w, "error: %s\n", types.PrintableLines(info.Message))
 	if debug {
 		writeCauseChain(w, err)
 	}
@@ -86,6 +88,6 @@ func errorInfoFromErr(err error) types.ErrorInfo {
 
 func writeCauseChain(w io.Writer, err error) {
 	for c := errors.Unwrap(err); c != nil; c = errors.Unwrap(c) {
-		_, _ = fmt.Fprintf(w, "cause: %v\n", c)
+		_, _ = fmt.Fprintf(w, "cause: %s\n", types.PrintableLines(c.Error()))
 	}
 }

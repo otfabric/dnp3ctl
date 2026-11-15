@@ -177,7 +177,8 @@ scheduled freezes, and refuses a time that has passed when there is no interval.
 --broadcast sends the freeze to every outstation on the channel at once, for example to
 freeze all the meters of a feeder at the same moment. Nobody answers a broadcast: each
 outstation sets IIN1.0 BROADCAST in its next response. A broadcast cannot be combined
-with secure authentication (see "client operate --help").
+with secure authentication (see "client operate --help"). --outstation on the command line
+wins over DNP3CTL_BROADCAST, and --broadcast with --outstation is refused (exit code 3).
 
 THIS CHANGES THE OUTSTATION: frozen values are overwritten, and with --clear the counters
 start again from zero. The request is sent once.`,
@@ -202,7 +203,12 @@ start again from zero. The request is sent once.`,
 	wire(cmd, &cfg, described("broadcast", dnp.BroadcastModes()))
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return formatted(cmd, cfg.OutputFormat, &cfg.Debug,
-			func() error { return dnp.CheckFreeze(&cfg) },
+			func() error {
+				if err := controlFromEnvironment(cmd, &cfg.Broadcast); err != nil {
+					return err
+				}
+				return dnp.CheckFreeze(&cfg)
+			},
 			func(ctx context.Context) (any, error) { return dnp.Freeze(ctx, &cfg, cmd.ErrOrStderr()) })
 	}
 	return cmd
