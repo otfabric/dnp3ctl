@@ -34,6 +34,36 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+// lineBuffer is a syncBuffer that signals on lines every line written to it, so that a test
+// can act once a streaming command has printed a record.
+type lineBuffer struct {
+	syncBuffer
+	lines chan struct{}
+}
+
+func newLineBuffer() *lineBuffer { return &lineBuffer{lines: make(chan struct{}, 1024)} }
+
+func (b *lineBuffer) Write(p []byte) (int, error) {
+	n, err := b.syncBuffer.Write(p)
+	for range bytes.Count(p[:n], []byte("\n")) {
+		select {
+		case b.lines <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
+// runTo is run with stdout written to stdout as well.
+func runTo(t testing.TB, stdout *lineBuffer, args ...string) result {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var stderr syncBuffer
+	code := Run(ctx, args, stdout, &stderr)
+	return result{stdout.String(), stderr.String(), code}
+}
+
 // result is the outcome of one invocation of dnp3ctl.
 type result struct {
 	stdout, stderr string

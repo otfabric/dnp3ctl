@@ -1,5 +1,43 @@
 # dnp3ctl Releases
 
+## v0.15.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.14.2
+
+An `--outstation` on the command line decides where a control or a freeze goes, NaN and infinite values have a JSON form, text and table output escape the control characters of strings a peer sent, and the simulated outstation bounds uploads, model files and restart requests.
+
+### Breaking
+
+- **`client operate` and `client freeze`: an `--outstation` on the command line wins over `DNP3CTL_BROADCAST`.** With the variable set and `--outstation` given, the request goes to that outstation only and is answered: the result has the outstation's status (`SUCCESS`, or its refusal with exit code 6) and no `broadcast` field, and stderr says `notice: DNP3CTL_BROADCAST=<mode> is not used: --outstation <address> is on the command line, and the request goes to that outstation only`. `--broadcast` and `--outstation` both on the command line exit 3 (`invalid_flag_combination`) and send nothing. To broadcast, give `--broadcast`, or `DNP3CTL_BROADCAST`, without `--outstation` on the command line; `DNP3CTL_OUTSTATION` is not the command line and leaves a broadcast as it is.
+- `client operate` writes a line `notice: --<flag> <value> is taken from <variable>` to stderr for each of `--broadcast`, `--op`, `--mode` and `--value` that comes from the environment, and `client freeze` for `--broadcast`. stdout and the exit codes are as before.
+
+### Added
+
+- **JSON output: `non_finite`.** A NaN or infinite value is written as `"value": null` with `"non_finite": "NaN"`, `"+Inf"` or `"-Inf"`: in measurements (`client read`, `client poll`, `client monitor`), float attributes (`client attributes`, `client write-attribute`) and the events of `server start`. These commands report such values and go on; `client monitor` keeps streaming. Text and table output show `NaN`, `+Inf` and `-Inf`. docs/json-output.md describes the form.
+- **`uploads.max_files` and `uploads.max_bytes`** in the model of `server start`: the most files masters may have written, and the most octets they hold together, the transfers in progress included. The defaults are 64 files and 64 MiB. Opening a further file for writing is answered with PERMISSION_DENIED, a write past the octets with FILE_FATAL, and each refusal is logged as a `file` event. Deleting a file makes room again.
+- **CI:** `nightly.yml` runs `make e2e`, the end-to-end suite of the binary, every night and on dispatch.
+
+### Changed
+
+- **Text and table output** write strings a peer sent (device attributes, file names, octet strings, and the values and details of the `server start` event log) with their control characters and any octets that are not UTF-8 escaped as in a Go string, without the quotes (`\x1b`, `\r`, `\n`). An error message on stderr is escaped the same way, line by line. JSON output is as before.
+- **`server start`, the model:** a model file holds at most 16 MiB; a `files[].path` names a regular file; a file of the model, by `path`, `content` or `size`, holds at most 4 294 967 295 octets. Each is checked from its size before anything is read or made, and the content of a `size` is made once, when the server starts.
+- **`server start`, restarts:** at most one restart is pending. A cold or warm restart request while one is pending is answered with the time left until it and adds none; a cold request makes a pending warm restart cold. A restart pending when the server stops is not carried out, and a request after that is refused (IIN2.0).
+- **Keys:** a key (`--sa-key-file`, `--sa-update-key-file`, `DNP3CTL_SA_KEY`, `DNP3CTL_SA_UPDATE_KEY`) that is not hex is refused (`invalid_key`, exit code 3) with the position of the first character that is not a hex digit. The message, and its causes under `--debug`, name no character of the key.
+- SECURITY.md says what `client monitor` writes by default: the outstation's clock on NEED_TIME (`--time-sync none` leaves it alone) and the clear of DEVICE_RESTART after a restart.
+
+### Fixed
+
+- **`server start`:** a NaN set-point of an analog control with `min` or `max` is answered OUT_OF_RANGE, as a value outside them is, and the control is logged with `non_finite`.
+
+### Quality
+
+- `TestMonitor/unsolicited_changes` uses an outstation of its own and makes its second change after the monitor has written its first record; it passed 1000 runs under `-race` with `GOMAXPROCS=1`. The "serve ends" test of `internal/station` waits for the outstation to serve and checks the error `Run` returns.
+- A test pins that a control (direct operate, select-before-operate, a set-point), a freeze and a restart are sent once with `--retries 3`, counting the requests on the wire, while a read is sent again.
+- Regression tests for every change above: unit tests of the upload and model limits (with allocation bounds), restart scheduling with `testing/synctest` (also racing `Close`), the escaping and the JSON form; end to end against the simulated outstation over DNP3 for uploads, NaN and infinite values in read, poll and monitor, a NaN set-point in the JSON log of `server start`, peer strings in text and table output, and the precedence of `--outstation`.
+
+---
+
 ## v0.14.2
 
 **Date:** 2026-11-15

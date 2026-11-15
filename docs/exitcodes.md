@@ -36,7 +36,7 @@
 
 **`--debug`:** adds the frame trace and, after a fatal error, the chain of causes (`cause: …` lines) on stderr. It does not change stdout or the exit code.
 
-**Broadcasts:** `client operate --broadcast` and `client freeze --broadcast` exit `0` once the request is sent: nobody answers a broadcast, so neither a refusal nor a missing answer can be reported. Each outstation sets IIN1.0 BROADCAST in its next response; poll to see it. `--broadcast` with secure authentication configured exits `3`: it could not be authenticated.
+**Broadcasts:** `client operate --broadcast` and `client freeze --broadcast` exit `0` once the request is sent: nobody answers a broadcast, so neither a refusal nor a missing answer can be reported. Each outstation sets IIN1.0 BROADCAST in its next response; poll to see it. `--broadcast` with secure authentication configured exits `3`: it could not be authenticated. `--broadcast` and `--outstation` both on the command line exit `3` (`invalid_flag_combination`) and send nothing. An `--outstation` on the command line wins over `DNP3CTL_BROADCAST`: the request goes to that outstation, is answered, and exits as any request to one outstation does, with a notice on stderr that the variable was not used. To broadcast, give `--broadcast` (or `DNP3CTL_BROADCAST`) without `--outstation` on the command line.
 
 **Organisation table:** these codes follow the OT Fabric CLI exit-code table. dnp3ctl does not use `1`, `8` and `9`: they keep their organisation meaning and are not reused for anything else.
 

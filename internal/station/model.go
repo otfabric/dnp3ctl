@@ -221,8 +221,34 @@ type UploadSpec struct {
 	// Accept makes the outstation take the files masters write, and delete files.
 	Accept bool `yaml:"accept,omitempty" json:"accept,omitempty"`
 	// Dir, when set, is where written files are stored (relative to the model file), under
-	// their name. Without it they are kept in memory.
+	// their name. Without it they are kept in memory only; with it in memory as well.
 	Dir string `yaml:"dir,omitempty" json:"dir,omitempty"`
+	// MaxFiles is the most files masters may have written that the outstation holds at a
+	// time, the transfers in progress included: the open of a write to another name is
+	// refused past it. 0 is the default, 64.
+	MaxFiles int `yaml:"max_files,omitempty" json:"max_files,omitempty"`
+	// MaxBytes is the most octets the files masters wrote may hold together, the octets of
+	// the transfers in progress included: a block past it is refused. 0 is the default,
+	// 67108864 (64 MiB).
+	MaxBytes int64 `yaml:"max_bytes,omitempty" json:"max_bytes,omitempty"`
+}
+
+// Defaults of UploadSpec.MaxFiles and UploadSpec.MaxBytes.
+const (
+	defaultMaxUploadFiles = 64
+	defaultMaxUploadBytes = 64 << 20
+)
+
+// limits returns the upload limits of the model, the defaults for those it leaves at 0.
+func (u UploadSpec) limits() (files int, octets int64) {
+	files, octets = u.MaxFiles, u.MaxBytes
+	if files == 0 {
+		files = defaultMaxUploadFiles
+	}
+	if octets == 0 {
+		octets = defaultMaxUploadBytes
+	}
+	return files, octets
 }
 
 // pointTypes are the point types a model may use.
@@ -290,12 +316,30 @@ var commandStatuses = func() map[string]app.CommandStatus {
 	return out
 }()
 
+// maxModelSize is the largest model file Load reads: 16 MiB. A larger file is refused
+// without being read in full.
+const maxModelSize = 16 << 20
+
 // Load reads a model from a YAML or JSON file and validates it.
 func Load(file string) (*Model, error) {
 	file = filepath.Clean(file)
-	data, err := os.ReadFile(file)
+	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
+	}
+	tooLarge := fmt.Errorf("%s: a model file holds at most %d octets (16 MiB)", file, maxModelSize)
+	// A regular file is refused from its size; anything else is read up to the limit.
+	if fi, err := f.Stat(); err == nil && fi.Mode().IsRegular() && fi.Size() > maxModelSize {
+		_ = f.Close()
+		return nil, tooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxModelSize+1))
+	_ = f.Close()
+	switch {
+	case err != nil:
+		return nil, err
+	case len(data) > maxModelSize:
+		return nil, tooLarge
 	}
 	m, err := Parse(data)
 	if err != nil {
@@ -539,12 +583,9 @@ func (m *Model) Validate() error {
 		if _, err := dnp.ParsePermissions(f.Permissions); err != nil {
 			bad("%s: %v", what, err)
 		}
-		data, err := m.fileContent(f)
-		switch {
-		case err != nil:
+		// The size is checked without making the content, which New does once.
+		if err := m.checkFileSize(f); err != nil {
 			bad("%s: %v", what, err)
-		case int64(len(data)) > math.MaxUint32:
-			bad("%s: %d octets: the maximum is %d", what, len(data), uint32(math.MaxUint32))
 		}
 	}
 	for n := range names {
@@ -556,6 +597,9 @@ func (m *Model) Validate() error {
 	}
 	if m.Uploads.Dir != "" && !m.Uploads.Accept {
 		bad("uploads.dir is set but uploads.accept is not")
+	}
+	if m.Uploads.MaxFiles < 0 || m.Uploads.MaxBytes < 0 {
+		bad("uploads: max_files and max_bytes cannot be negative")
 	}
 
 	if len(problems) == 0 {
@@ -711,6 +755,35 @@ func cleanName(name string) (string, error) {
 	return path.Clean("/" + name), nil
 }
 
+// maxModelFile is the largest file of a model: the largest size of the four octets of g70.
+const maxModelFile = math.MaxUint32
+
+// sizeError is the error of a file of the model with more octets than a g70 file holds.
+func sizeError(n int64) error {
+	return fmt.Errorf("%d octets: the maximum is %d", n, uint32(maxModelFile))
+}
+
+// checkFileSize checks that a file of the model fits a g70 file, without making its
+// content: the size, the length of the content, or the file a path names, which must be a
+// regular file and is opened but not read.
+func (m *Model) checkFileSize(f FileSpec) error {
+	n := int64(f.Size)
+	switch {
+	case f.Path != "":
+		file, err := m.openFile(f.Path)
+		if err != nil {
+			return err
+		}
+		return file.Close()
+	case f.Content != "":
+		n = int64(len(f.Content))
+	}
+	if n > maxModelFile {
+		return sizeError(n)
+	}
+	return nil
+}
+
 // fileContent returns the octets of a file of the model.
 func (m *Model) fileContent(f FileSpec) ([]byte, error) {
 	switch {
@@ -718,33 +791,89 @@ func (m *Model) fileContent(f FileSpec) ([]byte, error) {
 		return m.readFile(f.Path)
 	case f.Content != "":
 		return []byte(f.Content), nil
+	case f.Size < 0:
+		return nil, errors.New("size cannot be negative")
+	case int64(f.Size) > maxModelFile:
+		return nil, sizeError(int64(f.Size))
 	}
+	// The repeating pattern A-Z, copied in pieces that double, not octet by octet.
 	data := make([]byte, f.Size)
-	for i := range data {
-		data[i] = byte('A' + i%26)
+	n := copy(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	for n < len(data) {
+		n += copy(data[n:], data[:n])
 	}
 	return data, nil
 }
 
-// readFile reads the file p a model names. A relative p is read through an [os.Root] of
-// the directory of the model file (the working directory for a model that was not loaded
-// from a file), so that it cannot leave that directory, through ".." or a symbolic link; an
-// absolute p is read as it is.
+// readFile reads the file p a model names (see openFile).
 func (m *Model) readFile(p string) ([]byte, error) {
-	p = filepath.Clean(p)
-	if filepath.IsAbs(p) {
-		return os.ReadFile(p)
-	}
-	dir := m.dir
-	if dir == "" {
-		dir = "."
-	}
-	root, err := os.OpenRoot(dir)
+	f, err := m.openFile(p)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = root.Close() }()
-	return root.ReadFile(p)
+	defer func() { _ = f.Close() }()
+	// The file may grow after it was opened: no more than the largest file is read.
+	data, err := io.ReadAll(io.LimitReader(f, maxModelFile+1))
+	switch {
+	case err != nil:
+		return nil, err
+	case int64(len(data)) > maxModelFile:
+		return nil, sizeError(int64(len(data)))
+	}
+	return data, nil
+}
+
+// openFile opens the file p a model names. A relative p is opened through an [os.Root] of
+// the directory of the model file (the working directory for a model that was not loaded
+// from a file), so that it cannot leave that directory, through ".." or a symbolic link; an
+// absolute p is opened as it is. Only a regular file of at most the largest g70 size is
+// opened: a directory, a device, a FIFO or a larger file is refused before it is opened.
+func (m *Model) openFile(p string) (*os.File, error) {
+	p = filepath.Clean(p)
+	stat, open := os.Stat, os.Open
+	if !filepath.IsAbs(p) {
+		dir := m.dir
+		if dir == "" {
+			dir = "."
+		}
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = root.Close() }()
+		stat, open = root.Stat, root.Open
+	}
+	fi, err := stat(p)
+	if err != nil {
+		return nil, err
+	}
+	if err := regularFile(p, fi); err != nil {
+		return nil, err
+	}
+	f, err := open(p)
+	if err != nil {
+		return nil, err
+	}
+	// What was opened is checked as well: the path may have changed in between.
+	if fi, err = f.Stat(); err == nil {
+		err = regularFile(p, fi)
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// regularFile checks the file p of a model: a regular file that fits a g70 file.
+func regularFile(p string, fi os.FileInfo) error {
+	switch {
+	case !fi.Mode().IsRegular():
+		return fmt.Errorf("%s is not a regular file", p)
+	case fi.Size() > maxModelFile:
+		return sizeError(fi.Size())
+	}
+	return nil
 }
 
 func numeric(t server.PointType) bool {

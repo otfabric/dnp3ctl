@@ -21,7 +21,9 @@ func FuzzParse(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(data)
-	for _, s := range []string{"", "{}", "null", "- a\n- b\n", "outstation: {select_timeout: 5}\n", "outstation: {link_address: 3}\n", "points: [{}]\n", "\xff\xfe", "a: &a [*a]\n"} {
+	for _, s := range []string{"", "{}", "null", "- a\n- b\n", "outstation: {select_timeout: 5}\n", "outstation: {link_address: 3}\n", "points: [{}]\n", "\xff\xfe", "a: &a [*a]\n",
+		"points: [{type: binary-input, index: 0, value: true}]\nfiles: [{name: /a, size: 4294967295}, {name: /b, size: 4294967296}, {name: /c, content: x}]\n",
+		"points: [{type: binary-input, index: 0, value: true}]\nfiles: [{name: /a, size: 9223372036854775807}]\nuploads: {accept: true, max_files: 1, max_bytes: 1}\n"} {
 		f.Add([]byte(s))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -29,8 +31,15 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// Validate reads the files a model names: no input gets to pick them here.
-		m.Files = nil
+		// Validate opens the files a model names by path: no input gets to pick them here.
+		// Files given by content or size stay: Validate checks them without making them.
+		files := m.Files[:0]
+		for _, file := range m.Files {
+			if file.Path == "" {
+				files = append(files, file)
+			}
+		}
+		m.Files = files
 		if m.Validate() != nil {
 			return
 		}

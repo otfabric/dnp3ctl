@@ -242,6 +242,7 @@ func ToMeasurement(m client.Measurement) types.Measurement {
 	default:
 		out.Value = nil
 	}
+	out.Value, out.NonFinite = types.Finite(out.Value)
 	return out
 }
 

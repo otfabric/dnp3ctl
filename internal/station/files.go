@@ -35,6 +35,8 @@ type memEntry struct {
 	data    []byte
 	created app.Timestamp
 	perm    app.Permissions
+	// uploaded is set for a file a master wrote: it counts toward the upload limits.
+	uploaded bool
 }
 
 // fileServer serves the files of a model from memory, takes uploads when the model accepts
@@ -46,10 +48,22 @@ type fileServer struct {
 	dir    string
 	log    func(types.ServerEvent)
 	now    func() time.Time
+
+	// maxFiles and maxBytes are the upload limits of the model. What counts toward them, under
+	// mu: the files masters wrote (uploads) and their octets (held), the transfers in progress
+	// to a name that holds no upload yet (adding), and the octets masters have sent in the
+	// transfers in progress (sending).
+	maxFiles int
+	maxBytes int64
+	uploads  int
+	held     int64
+	adding   int
+	sending  int64
 }
 
 func newFileServer(m *Model, log func(types.ServerEvent), now func() time.Time) (*fileServer, error) {
 	fs := &fileServer{files: map[string]*memEntry{}, accept: m.Uploads.Accept, log: log, now: now}
+	fs.maxFiles, fs.maxBytes = m.Uploads.limits()
 	if m.Uploads.Dir != "" {
 		fs.dir = m.resolve(m.Uploads.Dir)
 	}
@@ -144,15 +158,26 @@ func (s *fileServer) Open(_ context.Context, req server.FileRequest) (server.Fil
 		if s.isDir(name) {
 			return nil, app.FilePermissionDenied
 		}
+		// A write to a name that holds no upload yet adds a file once it completes: it counts
+		// toward uploads.max_files from the open.
+		prev := s.files[name]
+		adds := prev == nil || !prev.uploaded
+		if adds && s.uploads+s.adding >= s.maxFiles {
+			s.event(types.ServerEvent{Event: "file", Detail: fmt.Sprintf("write of %s refused: the outstation holds %d files masters wrote, the most uploads.max_files allows", name, s.maxFiles)})
+			return nil, app.FilePermissionDenied
+		}
 		// A new file gets the time of creation the master asks for, or now; one appended
 		// to keeps its own.
-		w := &writeFile{fs: s, name: name, perm: req.Permissions, created: req.Created}
-		if e, ok := s.files[name]; ok && req.Mode == app.FileModeAppend {
-			w.buf.Write(e.data)
-			w.created = e.created
+		w := &writeFile{fs: s, name: name, perm: req.Permissions, created: req.Created, adds: adds}
+		if prev != nil && req.Mode == app.FileModeAppend {
+			w.buf.Write(prev.data)
+			w.created = prev.created
 		}
 		if w.perm == 0 {
 			w.perm = 0o644
+		}
+		if adds {
+			s.adding++
 		}
 		return w, app.FileSuccess
 	default:
@@ -172,8 +197,13 @@ func (s *fileServer) Delete(_ context.Context, name string, _ uint32) app.FileSt
 		s.event(types.ServerEvent{Event: "file", Detail: "delete of " + clean + " refused: uploads are not accepted"})
 		return app.FilePermissionDenied
 	}
-	if _, ok := s.files[clean]; !ok {
+	e, ok := s.files[clean]
+	if !ok {
 		return app.FileNotFound
+	}
+	if e.uploaded {
+		s.uploads--
+		s.held -= int64(len(e.data))
 	}
 	delete(s.files, clean)
 	if s.dir != "" {
@@ -247,21 +277,64 @@ func (s *fileServer) removeOnDisk(name string) {
 	_ = root.Remove(filepath.FromSlash(strings.TrimPrefix(name, "/")))
 }
 
-// store keeps a written file, on disk too when the model names an upload directory.
-func (s *fileServer) store(name string, data []byte, perm app.Permissions, created app.Timestamp) error {
+// store keeps a written file, on disk too when the model names an upload directory. The
+// transfer w, when not nil, ends in the same step, so that its octets count once: in the
+// transfer or in the file.
+func (s *fileServer) store(name string, data []byte, perm app.Permissions, created app.Timestamp, w *writeFile) error {
 	if s.dir != "" {
 		if err := s.storeOnDisk(name, data); err != nil {
+			s.release(w)
 			return err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.releaseLocked(w)
 	if created == 0 {
 		created = app.TimestampOf(s.now())
 	}
-	s.files[name] = &memEntry{data: data, created: created, perm: perm}
+	if prev := s.files[name]; prev != nil && prev.uploaded {
+		s.uploads--
+		s.held -= int64(len(prev.data))
+	}
+	s.files[name] = &memEntry{data: data, created: created, perm: perm, uploaded: true}
+	s.uploads++
+	s.held += int64(len(data))
 	s.event(types.ServerEvent{Event: "file", Detail: fmt.Sprintf("received %s (%d octets)", path.Clean(name), len(data))})
 	return nil
+}
+
+// reserve counts n more octets of the transfer w toward uploads.max_bytes, or refuses them
+// when the files masters wrote and the transfers in progress would then hold more.
+func (s *fileServer) reserve(w *writeFile, n int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.held+s.sending+n > s.maxBytes {
+		s.event(types.ServerEvent{Event: "file", Detail: fmt.Sprintf("write of %s refused: the files masters wrote would hold more than %d octets, the most uploads.max_bytes allows", w.name, s.maxBytes)})
+		return fmt.Errorf("%s: the files masters wrote would hold more than %d octets, the most the outstation keeps", w.name, s.maxBytes)
+	}
+	s.sending += n
+	w.sent += n
+	return nil
+}
+
+// release ends the transfer w, which no longer counts toward the upload limits.
+func (s *fileServer) release(w *writeFile) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.releaseLocked(w)
+}
+
+// releaseLocked is release with mu held; nil and a transfer that ended already do nothing.
+func (s *fileServer) releaseLocked(w *writeFile) {
+	if w == nil || w.done {
+		return
+	}
+	w.done = true
+	s.sending -= w.sent
+	if w.adds {
+		s.adding--
+	}
 }
 
 // readFile is a file or directory listing opened for reading.
@@ -288,6 +361,11 @@ type writeFile struct {
 	perm    app.Permissions
 	created app.Timestamp
 	buf     bytes.Buffer
+	// adds is set when the name holds no upload yet, sent counts the octets the master sent,
+	// and done is set once the transfer ended: the upload limits of fileServer, under its mu.
+	adds bool
+	sent int64
+	done bool
 }
 
 func (f *writeFile) Read([]byte) (int, error) { return 0, io.EOF }
@@ -295,17 +373,25 @@ func (f *writeFile) Size() uint32             { return size32(f.buf.Len()) }
 
 // Write takes a block of the file. A file of g70 has a size of four octets, so the
 // file may not grow past 4 GiB - 1: a master that sends more gets an error, which the
-// outstation answers with FILE_FATAL, instead of the size wrapping.
+// outstation answers with FILE_FATAL, instead of the size wrapping. A block that would
+// take the files masters wrote past uploads.max_bytes gets an error as well.
 func (f *writeFile) Write(p []byte) (int, error) {
 	if int64(f.buf.Len())+int64(len(p)) > maxFileSize {
 		return 0, fmt.Errorf("%s would exceed %d octets, the largest size of a DNP3 file", f.name, maxFileSize)
 	}
+	if err := f.fs.reserve(f, int64(len(p))); err != nil {
+		return 0, err
+	}
 	return f.buf.Write(p)
 }
+
+// Close ends the transfer, and keeps the file unless it is aborted. The file keeps the
+// octets of the buffer, which the transfer does not use again.
 func (f *writeFile) Close(abort bool) error {
 	if abort {
+		f.fs.release(f)
 		f.fs.event(types.ServerEvent{Event: "file", Detail: "write of " + f.name + " aborted"})
 		return nil
 	}
-	return f.fs.store(f.name, bytes.Clone(f.buf.Bytes()), f.perm, f.created)
+	return f.fs.store(f.name, f.buf.Bytes(), f.perm, f.created, f)
 }

@@ -88,7 +88,7 @@ func TestRendering(t *testing.T) {
 	if ErrorMessage(nil) != "" || ErrorMessage(errInfo) != errInfo.Message {
 		t.Error("ErrorMessage")
 	}
-	if (Measurement{}).ValueText() != "-" || (Measurement{Value: uint8(3)}).ValueText() != "3" || valueText("x") != "x" {
+	if (Measurement{}).ValueText() != "-" || (Measurement{Value: uint8(3)}).ValueText() != "3" || (&ServerEvent{Value: "x"}).valueText() != "x" {
 		t.Error("ValueText")
 	}
 	if s := (PingSummary{Sent: 2, Failed: 2, Target: "t"}).String(); !strings.Contains(s, "2 sent, 2 failed") || strings.Contains(s, "rtt") {

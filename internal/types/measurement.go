@@ -4,8 +4,11 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Measurement is one point value or event as an outstation reported it.
@@ -31,6 +34,9 @@ type Measurement struct {
 	// "intermediate", "indeterminate"), octet strings and the time of a time and interval
 	// (RFC 3339 with milliseconds), and a number for everything else.
 	Value any `json:"value"`
+	// NonFinite names a number that JSON cannot hold, "NaN", "+Inf" or "-Inf"; Value is
+	// then nil. Omitted for every other value.
+	NonFinite string `json:"non_finite,omitempty"`
 	// Flags are the quality flags that are set, joined with "|" ("ONLINE|RESTART"); empty
 	// when none is set. Omitted for objects without flags.
 	Flags string `json:"flags,omitempty"`
@@ -53,6 +59,9 @@ type Measurement struct {
 func (m Measurement) ValueText() string {
 	switch v := m.Value.(type) {
 	case nil:
+		if m.NonFinite != "" {
+			return m.NonFinite
+		}
 		return "-"
 	case bool:
 		if v {
@@ -62,10 +71,62 @@ func (m Measurement) ValueText() string {
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	case string:
-		return v
+		return Printable(v)
 	default:
 		return fmt.Sprint(v)
 	}
+}
+
+// Printable returns s for text and table output. A string with a character that is not
+// printable, a control character such as ESC, CR or LF, or with octets that are not UTF-8,
+// is written as a Go string literal without its quotes ("\x1b[2J", "a\nb"); any other
+// string is returned as it is. JSON output escapes these characters by itself.
+func Printable(s string) string {
+	for _, r := range s {
+		if r == utf8.RuneError || !unicode.IsPrint(r) {
+			q := strconv.Quote(s)
+			return q[1 : len(q)-1]
+		}
+	}
+	return s
+}
+
+// PrintableLines is [Printable] for each line of s, and each part of a line between tabs:
+// the line breaks and the tabs of a message laid out in lines stay.
+func PrintableLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		parts := strings.Split(l, "\t")
+		for j, p := range parts {
+			parts[j] = Printable(p)
+		}
+		lines[i] = strings.Join(parts, "\t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Finite returns v, or for a NaN or an infinite number, which JSON has no number for, nil
+// and the name of the number: "NaN", "+Inf" or "-Inf". These names are what the text
+// output prints for them.
+func Finite(v any) (value any, nonFinite string) {
+	var f float64
+	switch n := v.(type) {
+	case float64:
+		f = n
+	case float32:
+		f = float64(n)
+	default:
+		return v, ""
+	}
+	switch {
+	case math.IsNaN(f):
+		return nil, "NaN"
+	case math.IsInf(f, 1):
+		return nil, "+Inf"
+	case math.IsInf(f, -1):
+		return nil, "-Inf"
+	}
+	return v, ""
 }
 
 func orDash(s string) string {

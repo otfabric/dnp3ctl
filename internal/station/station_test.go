@@ -498,7 +498,7 @@ uploads: {accept: true, dir: up}
 	}
 	fs.dir = filepath.Join(dir, "a.txt-is-a-file")
 	_ = os.WriteFile(fs.dir, nil, 0o600)
-	if err := fs.store("/x/y", []byte("z"), 0o600, 0); err == nil {
+	if err := fs.store("/x/y", []byte("z"), 0o600, 0, nil); err == nil {
 		t.Error("storing below a file worked")
 	}
 }
@@ -668,13 +668,31 @@ func TestRun(t *testing.T) {
 		master, outstation := net.Pipe()
 		openSerial = func(serial.Config) (io.ReadWriteCloser, net.Addr, error) { return outstation, nil, nil }
 		t.Cleanup(func() { openSerial = dnp.OpenSerial })
+		// The outstation serves the stream once it is listening and the stream is open: then
+		// the master's end closes, and Run ends with the reason.
+		l := &eventLog{}
+		ready := make(chan struct{})
 		done := make(chan error, 1)
-		go func() { done <- Run(context.Background(), &config.ServerConfig{Serial: "/dev/x"}, nil, nil, nil) }()
-		time.Sleep(50 * time.Millisecond)
+		go func() {
+			done <- Run(context.Background(), &config.ServerConfig{Serial: "/dev/x"}, l.log, nil, func(net.Addr) { close(ready) })
+		}()
+		select {
+		case <-ready:
+		case err := <-done:
+			t.Fatalf("Run ended before it served: %v", err)
+		}
 		_ = master.Close()
-		if err := <-done; err == nil {
-			// The stream ended: ServeConn returns the reason, and Run reports it.
-			t.Log("ServeConn returned nil after the stream ended")
+		select {
+		case err := <-done:
+			e, ok := errs.As(err)
+			if !ok || e.Code != errs.CodeListenFailed || !strings.Contains(e.Message, "server stopped") || !errors.Is(err, dnp3.ErrConnectionLost) {
+				t.Errorf("Run after the stream ended: %v, want listen_failed, server stopped, connection lost", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("Run still serves 10 s after the stream ended")
+		}
+		if !l.has("listening", "") {
+			t.Errorf("events: %+v", l.events)
 		}
 	})
 	t.Run("an error while stopping is logged", func(t *testing.T) {
