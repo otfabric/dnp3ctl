@@ -38,7 +38,7 @@ RELEASE_DIR   := release
 FUZZTIME ?= 10s
 
 # docsync release of docs-check (DOC-008).
-DOCSYNC_VERSION := v0.3.1
+DOCSYNC_VERSION := v0.4.0
 
 # Minimum total statement coverage (percent) enforced by `make coverage`.
 COVERAGE_MIN ?= 85
