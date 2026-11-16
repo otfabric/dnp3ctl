@@ -1,5 +1,18 @@
 # dnp3ctl Releases
 
+## v0.15.1
+
+**Date:** 2026-11-16
+**Previous release:** v0.15.0
+
+No command or flag is added or changed.
+
+### Changed
+
+- Built on go-serial v0.5.0 (was v0.4.1) (go-serial RELEASE.md, v0.5.0). For a serial link on Windows, the device must be given by its device name (`COM3`, `COM10`, `\\.\COM10`, a device interface name): another form is refused when the port is opened, and every port has a `COM` name.
+
+---
+
 ## v0.15.0
 
 **Date:** 2026-11-15
