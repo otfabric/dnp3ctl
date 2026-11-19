@@ -105,6 +105,7 @@ outstation:
 | `event_variation` | The variation of its events. Default as below |
 | `deadband` | Counters and analog points: a change of the value is an event only when it exceeds the deadband. A change of the flags always is |
 | `exclude_from_class0` | Leave the point out of class 0 responses; it can still be read by object |
+| `read_only` | `octet-string` only: refuse a WRITE of it. The outstation answers with IIN2.2 (PARAMETER_ERROR, IEEE 1815-2012 4.5.11), the point keeps its value and makes no event, and the write is logged as `refused: read-only` |
 | `command_event_class` | `binary-output` and `analog-output` only: report every executed control of this output's index (OPERATE, DIRECT_OPERATE, DIRECT_OPERATE_NR) as a command event of this class 1-3, with the commanded state or value and the status it was answered with. Default 0: none |
 | `command_event_variation` | The variation of the command events: g13v1 or g13v2 for a binary output, g43v1 … g43v8 for an analog output. Default g13v2 or g43v3 (with time) |
 | `interval`, `interval_unit` | `time-and-interval` only: the interval, a count of the unit; the unit is `none` (default), `milliseconds`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `months-day`, `months-last` or `months-same` (IEEE 1815-2012 Table 11-23) |

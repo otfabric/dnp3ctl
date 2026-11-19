@@ -33,6 +33,7 @@ var pointTypes = map[uint8]string{
 	43:  "analog-output-command",
 	80:  "iin",
 	110: "octet-string", 111: "octet-string",
+	112: "virtual-terminal", 113: "virtual-terminal",
 	101: "bcd",
 	102: "unsigned-integer",
 	121: "security-statistic", 122: "security-statistic",
