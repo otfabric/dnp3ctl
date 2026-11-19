@@ -701,10 +701,31 @@ func (h *handler) Application(_ context.Context, fc app.FunctionCode, _ []app.He
 	return 0
 }
 
-// WriteOctetString implements server.WriteHandler.
+// errReadOnly refuses a WRITE of an octet string the model marks read_only.
+var errReadOnly = errors.New("the octet string is read-only")
+
+// WriteOctetString implements server.WriteHandler. go-dnp3 (v1.16.0 and later) asks
+// before it stores the octet string: one refused here keeps its value and makes no event,
+// and the WRITE is answered with IIN2.2.
 func (h *handler) WriteOctetString(_ context.Context, i uint32, data []byte) error {
-	h.st.event(types.ServerEvent{Event: "write", Object: "g110", Index: new(i), Value: string(data)})
+	e := types.ServerEvent{Event: "write", Object: "g110", Index: new(i), Value: string(data)}
+	if h.st.readOnly(i) {
+		e.Detail = "refused: read-only"
+		h.st.event(e)
+		return errReadOnly
+	}
+	h.st.event(e)
 	return nil
+}
+
+// readOnly reports whether the model marks octet string i read_only.
+func (st *Station) readOnly(i uint32) bool {
+	for _, p := range st.model.Points {
+		if p.ReadOnly && p.Index == i && pointTypes[strings.ToLower(strings.TrimSpace(p.Type))] == server.OctetString {
+			return true
+		}
+	}
+	return false
 }
 
 // simulate starts a goroutine per simulated point.

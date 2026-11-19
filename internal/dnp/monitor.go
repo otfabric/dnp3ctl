@@ -215,9 +215,8 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 	if cfg.Debug {
 		watcher.trace = &Tracer{W: progress}
 	}
-	handler := client.HandlerFunc(func(info client.ResponseInfo, ms []client.Measurement) {
-		mu.Lock()
-		defer mu.Unlock()
+	// report emits the values of one fragment that pass the filters; mu is held.
+	report := func(info client.ResponseInfo, ms []client.Measurement) {
 		if failed != nil || ctx.Err() != nil {
 			return
 		}
@@ -241,7 +240,21 @@ func Monitor(ctx context.Context, cfg *config.MonitorConfig, progress io.Writer,
 				return
 			}
 		}
-	})
+	}
+	handler := monitorHandler{
+		HandlerFunc: func(info client.ResponseInfo, ms []client.Measurement) {
+			mu.Lock()
+			defer mu.Unlock()
+			report(info, ms)
+		},
+		fragment: func(info client.ResponseInfo, f *app.Fragment) {
+			if vt := virtualTerminal(f); len(vt) > 0 {
+				mu.Lock()
+				defer mu.Unlock()
+				report(info, vt)
+			}
+		},
+	}
 	lost := make(chan error, 1)
 	state := func(st dnp3.State, err error) {
 		if err != nil && ctx.Err() == nil {
@@ -322,6 +335,39 @@ wait:
 		return summary, failed
 	}
 	return summary, result
+}
+
+// monitorHandler is the Handler of the monitor: the measurements, and through
+// HandleFragment (client.FragmentHandler, go-dnp3 v1.16.0) the objects of a fragment that
+// are not point data and that the monitor reports too.
+type monitorHandler struct {
+	client.HandlerFunc
+	fragment func(client.ResponseInfo, *app.Fragment)
+}
+
+// HandleFragment implements client.FragmentHandler. go-dnp3 calls it before
+// HandleMeasurements of the same fragment.
+func (h monitorHandler) HandleFragment(info client.ResponseInfo, f *app.Fragment) {
+	h.fragment(info, f)
+}
+
+// virtualTerminal returns the virtual terminal objects of f (g112 and g113, IEEE
+// 1815-2012 A.43 and A.44) as measurements: an octet string at the index of the virtual
+// port. go-dnp3 reports no measurement for them. An outstation sends its output as g113
+// events; g113 are events.
+func virtualTerminal(f *app.Fragment) []client.Measurement {
+	var ms []client.Measurement
+	for _, h := range f.Headers {
+		if g := h.GV.Group(); g != 112 && g != 113 {
+			continue
+		}
+		for _, o := range h.Objects {
+			if s, ok := o.Value.(app.OctetString); ok {
+				ms = append(ms, client.Measurement{GV: h.GV, Index: o.Index, Value: s, Event: h.GV.Group() == 113})
+			}
+		}
+	}
+	return ms
 }
 
 // restartWatcher sees the IIN of every fragment the outstation sends, null responses

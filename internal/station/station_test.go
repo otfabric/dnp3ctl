@@ -149,7 +149,8 @@ points:
   - {type: analog-input, index: 0, value: 1, interval: 5, command_event_class: 1}
   - {type: binary-output, index: 0, value: true, command_event_class: 4}
   - {type: analog-output, index: 0, value: 1, command_event_variation: 9}
-`, []string{"time-and-interval 0): a time and interval has no events", "static_variation 1: a time and interval is g50v4", "is not simulated",
+  - {type: analog-output, index: 1, value: 1, read_only: true}
+`, []string{"read_only is for an octet-string", "time-and-interval 0): a time and interval has no events", "static_variation 1: a time and interval is g50v4", "is not simulated",
 			`value "next week" is not a time`, "value 5 is not a time", `interval_unit "fortnights": use none, milliseconds`,
 			"interval and interval_unit are for a time-and-interval", "command_event_class and command_event_variation are for a binary-output",
 			"command_event_class 4: use 1-3", "command_event_variation 9 is not a variation of g43"}},

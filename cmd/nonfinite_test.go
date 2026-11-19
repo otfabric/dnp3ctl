@@ -166,7 +166,7 @@ func TestNaNSetPointRefused(t *testing.T) {
 	stop()
 	r := (<-done).want(t, 0)
 	var controls []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(r.stdout), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(r.stdout), "\n") {
 		var e map[string]any
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			t.Fatalf("a line of the log is not JSON: %v\n%s", err, line)

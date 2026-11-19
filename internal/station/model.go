@@ -159,6 +159,10 @@ type PointSpec struct {
 	// selects the variation; 0 is g13v2 or g43v3 (with time).
 	CommandEventClass     uint8 `yaml:"command_event_class,omitempty" json:"command_event_class,omitempty"`
 	CommandEventVariation uint8 `yaml:"command_event_variation,omitempty" json:"command_event_variation,omitempty"`
+	// ReadOnly, for an octet string, refuses a WRITE of it: the outstation answers with
+	// IIN2.2 (PARAMETER_ERROR, IEEE 1815-2012 4.5.11) and the point keeps its value and
+	// makes no event.
+	ReadOnly bool `yaml:"read_only,omitempty" json:"read_only,omitempty"`
 	// Simulate makes the value change by itself.
 	Simulate *SimSpec `yaml:"simulate,omitempty" json:"simulate,omitempty"`
 }
@@ -625,6 +629,9 @@ func (p PointSpec) kindProblems(t server.PointType) []string {
 		}
 	} else if p.Interval != 0 || p.IntervalUnit != "" {
 		out = append(out, "interval and interval_unit are for a time-and-interval")
+	}
+	if p.ReadOnly && t != server.OctetString {
+		out = append(out, "read_only is for an octet-string")
 	}
 	command := map[server.PointType]uint8{server.BinaryOutput: 13, server.AnalogOutput: 43}
 	group, output := command[t]

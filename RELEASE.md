@@ -1,5 +1,24 @@
 # dnp3ctl Releases
 
+## v0.16.0
+
+**Date:** 2026-11-20
+**Previous release:** v0.15.1
+
+Moves to go-dnp3 v1.16.0 (was v1.15.0). `client monitor` reports virtual terminal output, and an octet string of the simulated outstation can be read-only.
+
+### Added
+
+- **`client monitor`: virtual terminal output.** The virtual terminal event data (g113, IEEE 1815-2012 A.44) of a response or unsolicited response is reported as a record of the kind `virtual-terminal`, with the virtual port as `index`, the octets as `value` (text, or hex when not printable) and `event` set. `--object g113` and `--index` select it, and it counts toward `--count`. Before, the monitor did not report it: go-dnp3 gives it to a `client.FragmentHandler` only, which v1.16.0 adds. docs/json-output.md lists the kind.
+- **`server start`, the model: `read_only`** for an `octet-string` point. A WRITE of it is answered with IIN2.2 (PARAMETER_ERROR, IEEE 1815-2012 4.5.11); the point keeps its value and makes no event, and the write is logged as a `write` event with the detail `refused: read-only`. `read_only` on a point of another type is refused when the model is loaded. docs/server-config.md describes it.
+
+### Changed
+
+- Built on go-dnp3 v1.16.0 (go-dnp3 RELEASE.md, v1.16.0). For the tool this means:
+  - `server start`: an octet string WRITE is stored only once the simulated outstation has accepted it, so that a refused one leaves the point and the event buffer as they were.
+
+---
+
 ## v0.15.1
 
 **Date:** 2026-11-16

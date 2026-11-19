@@ -24,7 +24,7 @@ One point value or event as an outstation reported it. Used by `client poll`, `r
 | Field | Meaning |
 |-------|---------|
 | `object`, `group`, `variation` | the object the value was sent as |
-| `type` | the kind of point: `binary-input`, `double-bit-input`, `binary-output`, `binary-output-command`, `counter`, `frozen-counter`, `analog-input`, `frozen-analog-input`, `analog-deadband`, `analog-output`, `analog-output-command`, `octet-string`, `time-and-interval` (g50v4), `bcd` (g101), `unsigned-integer` (g102), `security-statistic`, `iin`; `g<n>` for another group |
+| `type` | the kind of point: `binary-input`, `double-bit-input`, `binary-output`, `binary-output-command`, `counter`, `frozen-counter`, `analog-input`, `frozen-analog-input`, `analog-deadband`, `analog-output`, `analog-output-command`, `octet-string`, `time-and-interval` (g50v4), `bcd` (g101), `unsigned-integer` (g102), `security-statistic`, `iin`, `virtual-terminal` (g112, g113; `client monitor` reports g113 event data, the virtual port as `index`, the octets as `value`); `g<n>` for another group |
 | `index` | the point index |
 | `event` | `true` for an object of an event group (g2, g4, g11, g13, g22, g23, g32, g33, g42, g43, g111, g122); omitted otherwise |
 | `value` | boolean for binary points; string for double-bit inputs (`"off"`, `"on"`, `"intermediate"`, `"indeterminate"`) and octet strings (the text when it is printable, otherwise `"0x…"` hex); the time of a time and interval (RFC 3339); number for counters, analog values, BCD (the digits read as a decimal number: `0x1234` is `1234`) and unsigned integers, and security statistics. A value sent in a single-precision variation is the shortest decimal that variation holds (`11.02`) |

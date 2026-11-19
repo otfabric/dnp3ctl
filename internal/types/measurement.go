@@ -25,7 +25,8 @@ type Measurement struct {
 	// Type is the kind of point: "binary-input", "double-bit-input", "binary-output",
 	// "binary-output-command", "counter", "frozen-counter", "analog-input",
 	// "frozen-analog-input", "analog-deadband", "analog-output", "analog-output-command",
-	// "octet-string", "time-and-interval", "security-statistic" or "iin".
+	// "octet-string", "time-and-interval", "security-statistic", "iin" or
+	// "virtual-terminal" (g112, g113: the index is the virtual port).
 	Type  string `json:"type"`
 	Index uint32 `json:"index"`
 	// Event is set for an object of an event group.
